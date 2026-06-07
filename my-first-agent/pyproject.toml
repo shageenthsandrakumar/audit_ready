@@ -11,6 +11,10 @@ dependencies = [
     "gcsfs>=2024.11.0",
     "google-cloud-logging>=3.12.0,<4.0.0",
     "pandas>=3.0.3",
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "pymc>=5.10",
+    "arviz>=0.17",
 ]
 requires-python = ">=3.11,<3.14"
 
