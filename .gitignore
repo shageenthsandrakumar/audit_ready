@@ -1,37 +1,6 @@
-# Python
+*.pyc
 __pycache__/
-*.py[cod]
-*.egg-info/
-.venv/
-venv/
-env/
-.ipynb_checkpoints/
-
-# Data (download from Kaggle; don't commit)
-data/
-*.csv
-*.zip
-
-# Secrets / env
-.env
-.env.*
-*.key
-kaggle.json
-
-# Memory store artifacts
-*.sqlite
 *.db
-memory_store.json
-
-# Node / UI
-node_modules/
-.next/
-dist/
-build/
-.vercel/
-
-# OS / editor
-.DS_Store
-Thumbs.db
-.vscode/
-.idea/
+.cursor/
+.lingcode/
+.pytest_cache/
