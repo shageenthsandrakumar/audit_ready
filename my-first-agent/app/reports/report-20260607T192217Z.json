@@ -1,0 +1,50 @@
+{
+  "report_id": "report-20260607T192217Z",
+  "generated_at": "2026-06-07T19:22:17.931723+00:00",
+  "findings": [
+    {
+      "finding_id": "F-OUT-weight_kg",
+      "finding_type": "numeric_anomaly",
+      "severity": 10,
+      "reason": "Column 'weight_kg' has 29 outliers by IQR rule; values outside [-41.16, 122.08] are suspicious.",
+      "evidence": {
+        "column": "weight_kg",
+        "outlier_count": 29,
+        "bounds": {
+          "lower": -41.160000000000004,
+          "upper": 122.08000000000001
+        }
+      }
+    }
+  ],
+  "ranked_findings": [
+    {
+      "rank": 1,
+      "finding": {
+        "finding_id": "F-OUT-weight_kg",
+        "finding_type": "numeric_anomaly",
+        "severity": 10,
+        "reason": "Column 'weight_kg' has 29 outliers by IQR rule; values outside [-41.16, 122.08] are suspicious.",
+        "evidence": {
+          "column": "weight_kg",
+          "outlier_count": 29,
+          "bounds": {
+            "lower": -41.160000000000004,
+            "upper": 122.08000000000001
+          }
+        }
+      },
+      "ranking_reason": "Ranked #1 because severity=10. Higher severity indicates greater business and data quality risk."
+    }
+  ],
+  "actions": [
+    {
+      "rank": 1,
+      "finding_id": "F-OUT-weight_kg",
+      "action": "escalate",
+      "action_detail": "Escalate to domain expert for approval before data changes.",
+      "action_reason": "High-severity findings can materially affect compliance or customer impact and need human oversight."
+    }
+  ],
+  "report_path": "/Users/anastasiyachabotska/Desktop/hackathon/my-first-agent/app/reports/report-20260607T192217Z.md"
+}
