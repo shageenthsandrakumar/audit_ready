@@ -28,6 +28,10 @@ load_dotenv()
 APP_DIR = Path(__file__).resolve().parent
 DEFAULT_DATASET_PATH = APP_DIR / "track01_customers.csv"
 FALLBACK_DATASET_PATH = APP_DIR / "track01_data_rescue.csv"
+ALLOWED_DATASETS: dict[str, Path] = {
+    "track01_customers.csv": DEFAULT_DATASET_PATH,
+    "track01_data_rescue.csv": FALLBACK_DATASET_PATH,
+}
 REPORTS_DIR = APP_DIR / "reports"
 REPORTS_DIR.mkdir(exist_ok=True)
 
@@ -41,16 +45,35 @@ class Finding:
     evidence: dict[str, Any]
 
 
-def _load_dataset(path: str | None = None) -> pd.DataFrame:
-    if path:
-        dataset_path = Path(path)
-        if not dataset_path.is_absolute():
-            dataset_path = APP_DIR / dataset_path
-    else:
-        dataset_path = DEFAULT_DATASET_PATH if DEFAULT_DATASET_PATH.exists() else FALLBACK_DATASET_PATH
+def _normalize_dataset_key(path: str) -> str:
+    return Path(path.strip()).name.lower()
 
-    if not dataset_path.exists():
-        raise FileNotFoundError(f"Dataset not found: {dataset_path}")
+
+def _resolve_dataset_path(path: str | None = None) -> Path:
+    if path and path.strip():
+        key = _normalize_dataset_key(path)
+        if key not in ALLOWED_DATASETS:
+            allowed = ", ".join(sorted(ALLOWED_DATASETS.keys()))
+            raise ValueError(
+                f"Unsupported dataset '{path}'. Allowed datasets: {allowed}."
+            )
+        resolved = ALLOWED_DATASETS[key]
+        if resolved.exists():
+            return resolved
+        raise FileNotFoundError(f"Dataset not found: {resolved}")
+
+    if DEFAULT_DATASET_PATH.exists():
+        return DEFAULT_DATASET_PATH
+    if FALLBACK_DATASET_PATH.exists():
+        return FALLBACK_DATASET_PATH
+
+    raise FileNotFoundError(
+        f"No default dataset found. Expected one of: {DEFAULT_DATASET_PATH}, {FALLBACK_DATASET_PATH}"
+    )
+
+
+def _load_dataset(path: str | None = None) -> pd.DataFrame:
+    dataset_path = _resolve_dataset_path(path)
     if dataset_path.suffix.lower() == ".csv":
         return pd.read_csv(dataset_path)
     if dataset_path.suffix.lower() in {".xls", ".xlsx"}:
@@ -231,12 +254,13 @@ def _agent_4_explain_it(
 
 
 def run_data_quality_pipeline(dataset_path: str | None = None) -> dict[str, Any]:
-    df = _load_dataset(dataset_path)
+    resolved_dataset_path = _resolve_dataset_path(dataset_path)
+    df = _load_dataset(str(resolved_dataset_path))
     findings = _agent_1_find_it(df)
     ranked = _agent_2_rank_it(findings)
     actions = _agent_3_act_on_it(ranked, df)
     report = _agent_4_explain_it(
-        dataset_name=str(dataset_path or DEFAULT_DATASET_PATH.name),
+        dataset_name=resolved_dataset_path.name,
         row_count=len(df),
         ranked=ranked,
         actions=actions,
@@ -274,12 +298,10 @@ def read_dataset(file_path: str) -> str:
     Returns:
         The content of the dataset as a CSV string.
     """
-    dataset_path = Path(file_path)
-    if not dataset_path.is_absolute():
-        dataset_path = APP_DIR / dataset_path
-
-    if not dataset_path.exists():
-        return f"Error: File '{dataset_path}' not found. Please ensure the path is correct."
+    try:
+        dataset_path = _resolve_dataset_path(file_path)
+    except Exception as e:
+        return f"Error: {str(e)}"
 
     try:
         if dataset_path.suffix.lower() == '.csv':
