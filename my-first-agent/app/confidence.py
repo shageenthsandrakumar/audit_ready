@@ -44,12 +44,15 @@ except Exception:  # pragma: no cover - import guard
 # Constants
 # --------------------------------------------------------------------------- #
 
-# The six seeded issue classes for Track 01.
+# The six seeded issue classes for Track 01. Keys match the detector output
+# (src/detectors.py); aliases included so either naming resolves.
 STRUCTURAL_ISSUES = {
     "exact_duplicate": 0.98,
-    "orphaned_customer_ref": 0.97,
+    "orphaned_customer": 0.97,        # detector name
+    "orphaned_customer_ref": 0.97,    # alias
     "impossible_value": 0.95,
-    "near_duplicate": 0.75,
+    "near_duplicate_variant": 0.75,   # detector name
+    "near_duplicate": 0.75,           # alias
     "unit_format_drift": 0.80,
 }
 # Weight-statistical issue handled by the Bayesian model.
@@ -363,13 +366,18 @@ def score_finding(
 
 
 def score_findings(
-    findings: list[dict[str, Any]], df: pd.DataFrame | None = None
+    findings: list[dict[str, Any]],
+    df: pd.DataFrame | None = None,
+    use_pymc: bool = False,
 ) -> list[dict[str, Any]]:
     """Calibrate a batch of findings; fits the weight model once if needed.
 
     Args:
         findings: List of findings in the shared contract shape.
         df: The production records, required only if any weight issues present.
+        use_pymc: Full PyMC hierarchical fit (slower, the calibration showcase)
+            vs the fast scipy empirical-Bayes fit (default, ~instant). Both give
+            near-identical scores here; EB keeps dev/demo loops snappy.
 
     Returns:
         New list of findings with `confidence` + `triage` populated.
@@ -378,7 +386,7 @@ def score_findings(
     if df is not None and any(
         f.get("issue_type") in STATISTICAL_ISSUES for f in findings
     ):
-        model = WeightModel().fit(df)
+        model = WeightModel().fit(df, use_pymc=use_pymc)
     return [score_finding(f, model) for f in findings]
 
 
