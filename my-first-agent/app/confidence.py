@@ -44,18 +44,32 @@ except Exception:  # pragma: no cover - import guard
 # Constants
 # --------------------------------------------------------------------------- #
 
-# The six seeded issue classes for Track 01. Keys match the detector output
-# (src/detectors.py); aliases included so either naming resolves.
-STRUCTURAL_ISSUES = {
-    "exact_duplicate": 0.98,
-    "orphaned_customer": 0.97,        # detector name
-    "orphaned_customer_ref": 0.97,    # alias
-    "impossible_value": 0.95,
-    "near_duplicate_variant": 0.75,   # detector name
-    "near_duplicate": 0.75,           # alias
-    "unit_format_drift": 0.80,
+# Evidence-grade priors: P(this flagged pattern is a REAL, actionable error) --
+# NOT merely "did the pattern match". Deterministic/physical issues are near-
+# certain; genuinely ambiguous ones (a possibly-legitimate new customer, a
+# case-only spelling, a 2-row near-duplicate that could be a real repeat order)
+# are honestly hedged so they fall into the human-review lane. Severity (set by
+# the detector) encodes that ambiguity, so some priors vary by severity.
+STRUCTURAL_PRIORS: dict[str, Any] = {
+    "exact_duplicate": 0.97,            # exact copy -> near-certain
+    "impossible_value": 0.96,           # negative qty / >500kg -> physically impossible
+    "orphaned_customer": 0.55,          # could be a legit new customer -> defer to a human
+    "near_duplicate_variant": {         # by clone-group size (detector severity)
+        "high": 0.82,                   # 3+ clones -> very likely a duplicate
+        "med": 0.58,                    # 2 clones -> could be a real repeat order
+        "low": 0.52,
+    },
+    "unit_format_drift": {              # whitespace (breaks joins) vs case-only (often benign)
+        "med": 0.74,
+        "low": 0.45,
+    },
 }
-# Weight-statistical issue handled by the Bayesian model.
+# Detector-name aliases so either naming resolves.
+_ALIASES = {
+    "orphaned_customer_ref": "orphaned_customer",
+    "near_duplicate": "near_duplicate_variant",
+}
+# Weight-statistical issue handled directly by the Bayesian model.
 STATISTICAL_ISSUES = {"decimal_shift_weight"}
 
 # Base rate of genuine errors in the benchmark (850 / 5000).
@@ -100,23 +114,26 @@ def tier1_confidence(finding: dict[str, Any]) -> float:
         Confidence in [0, 1].
     """
     issue = finding.get("issue_type", "")
+    issue = _ALIASES.get(issue, issue)
+    severity = str(finding.get("severity", "med")).lower()
     signals = finding.get("raw_signals") or {}
     agreed = int(signals.get("signals_agreed", 1) or 1)
     sigma_off = float(signals.get("sigma_off", 0.0) or 0.0)
 
-    base = STRUCTURAL_ISSUES.get(issue, 0.70)
+    prior = STRUCTURAL_PRIORS.get(issue, 0.60)
+    base = prior.get(severity, 0.55) if isinstance(prior, dict) else float(prior)
 
-    # More independent signals agreeing -> push toward certainty (diminishing).
-    # Each extra agreeing signal closes part of the gap to 1.0.
+    # Extra *independent* agreeing signals raise confidence (diminishing, and
+    # gentler than before so we don't saturate everything near 1.0).
     conf = base
     for _ in range(max(0, agreed - 1)):
-        conf += (1.0 - conf) * 0.45
+        conf += (1.0 - conf) * 0.25
 
-    # Statistical distance, when supplied, nudges confidence up.
+    # Genuine statistical distance from the per-part baseline raises it.
     if sigma_off:
-        conf += (1.0 - conf) * (1.0 - math.exp(-abs(sigma_off) / 3.0)) * 0.5
+        conf += (1.0 - conf) * (1.0 - math.exp(-abs(sigma_off) / 3.0)) * 0.4
 
-    return float(min(max(conf, 0.01), 0.999))
+    return float(min(max(conf, 0.01), 0.99))
 
 
 # --------------------------------------------------------------------------- #
@@ -345,9 +362,9 @@ def score_finding(
         part = out.get("part_number") or (out.get("raw_signals") or {}).get("part_number")
         weight = _to_float(out.get("current_value"))
         p_error, info = model.error_probability(str(part), weight)
-        # Blend the Tier-1 prior with the Bayesian posterior (model dominates).
-        conf = 0.8 * p_error + 0.2 * tier1_confidence(out)
-        out["confidence"] = round(float(conf), 4)
+        # Use the Bayesian posterior directly so confidence scales honestly with
+        # magnitude: a 100x shift -> ~1.0, a borderline 2-3x outlier -> mid-range.
+        out["confidence"] = round(float(p_error), 4)
         corr = model.best_decimal_correction(str(part), weight)
         if corr:
             out["suggested_fix"] = f"{corr['suggested_kg']} kg"
