@@ -15,6 +15,7 @@ dependencies = [
     "scipy>=1.11",
     "pymc>=5.10",
     "arviz>=0.17",
+    "litellm>=1.0",
 ]
 requires-python = ">=3.11,<3.14"
 
