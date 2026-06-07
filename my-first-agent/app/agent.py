@@ -5,6 +5,7 @@
 # ... [License text omitted for brevity] ...
 
 import os
+import sys
 import json
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -27,11 +28,18 @@ load_dotenv()
 
 
 APP_DIR = Path(__file__).resolve().parent
-DEFAULT_DATASET_PATH = APP_DIR / "track01_customers.csv"
-FALLBACK_DATASET_PATH = APP_DIR / "track01_data_rescue.csv"
+REPO_ROOT = APP_DIR.parents[1]  # audit_ready/ — lets us import src.detectors etc.
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+# Track 01 datasets. The 5,000-row production file is the primary records set;
+# the customer lookup is used for orphaned-reference detection.
+DEFAULT_DATASET_PATH = APP_DIR / "track01_data_rescue.csv"
+CUSTOMERS_PATH = APP_DIR / "track01_customers.csv"
+FALLBACK_DATASET_PATH = APP_DIR / "track01_customers.csv"
 ALLOWED_DATASETS: dict[str, Path] = {
-    "track01_customers.csv": DEFAULT_DATASET_PATH,
-    "track01_data_rescue.csv": FALLBACK_DATASET_PATH,
+    "track01_data_rescue.csv": DEFAULT_DATASET_PATH,
+    "track01_customers.csv": CUSTOMERS_PATH,
 }
 REPORTS_DIR = APP_DIR / "reports"
 REPORTS_DIR.mkdir(exist_ok=True)
@@ -82,92 +90,94 @@ def _load_dataset(path: str | None = None) -> pd.DataFrame:
     raise ValueError("Unsupported dataset type. Use CSV or Excel.")
 
 
+def _severity_to_int(severity: str, confidence: float) -> int:
+    """Map the detector's low/med/high to an int, nudged by confidence so a
+    high-confidence finding sorts above an uncertain one within the same tier."""
+    base = {"high": 8, "med": 5, "low": 2}.get(str(severity).lower(), 3)
+    return min(10, base + round(confidence * 2))
+
+
+def _to_finding(scored: dict[str, Any]) -> Finding:
+    """Convert a shared-contract finding (already scored with Bayesian
+    confidence) into the report pipeline's Finding object."""
+    conf = float(scored.get("confidence", 0.0))
+    triage = scored.get("triage", "needs_review")
+    fix = scored.get("suggested_fix", "")
+    base_reason = scored.get("evidence", "")
+    return Finding(
+        finding_id=str(scored.get("record_id", "")),
+        finding_type=str(scored.get("issue_type", "unknown")),
+        severity=_severity_to_int(scored.get("severity", "med"), conf),
+        reason=f"{base_reason} (Confidence {conf:.0%}; suggested fix: {fix})",
+        evidence={
+            "confidence": round(conf, 4),
+            "triage": triage,
+            "issue_severity": scored.get("severity"),
+            "current_value": scored.get("current_value"),
+            "suggested_fix": fix,
+            "impact_usd": scored.get("impact_usd"),
+            **(scored.get("raw_signals") or {}),
+        },
+    )
+
+
 def _agent_1_find_it(df: pd.DataFrame) -> list[Finding]:
-    findings: list[Finding] = []
+    """Find It (Step 1).
 
-    dup_mask = df.duplicated(keep=False)
-    dup_count = int(dup_mask.sum())
-    if dup_count > 0:
-        findings.append(
-            Finding(
-                finding_id="F-001",
-                finding_type="duplicate_rows",
-                severity=min(10, 4 + dup_count),
-                reason=(
-                    f"Detected {dup_count} duplicated records; duplicates can distort risk metrics and downstream actions."
-                ),
-                evidence={
-                    "duplicate_count": dup_count,
-                    "sample_indices": df.index[dup_mask].tolist()[:10],
-                },
-            )
-        )
+    Runs the team's six benchmark-tuned detectors over the production records,
+    persists each finding to the shared MemoryStore (so the agent-to-agent
+    handoff is auditable), then assigns every finding a *calibrated Bayesian
+    confidence*. Returns Findings ready for ranking.
+    """
+    from src.memory_store import MemoryStore
+    from src.detectors import (
+        detect_decimal_shift_weights,
+        detect_exact_duplicates,
+        detect_impossible_values,
+        detect_near_duplicate_variants,
+        detect_orphaned_customers,
+        detect_unit_format_drift,
+    )
+    from app.confidence import score_findings
 
-    numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
-    for col in numeric_cols:
-        series = df[col].dropna()
-        if series.empty:
-            continue
-        q1 = series.quantile(0.25)
-        q3 = series.quantile(0.75)
-        iqr = q3 - q1
-        if iqr == 0:
-            continue
-        lower = q1 - 1.5 * iqr
-        upper = q3 + 1.5 * iqr
-        outlier_mask = (df[col] < lower) | (df[col] > upper)
-        outlier_count = int(outlier_mask.fillna(False).sum())
-        if outlier_count > 0:
-            findings.append(
-                Finding(
-                    finding_id=f"F-OUT-{col}",
-                    finding_type="numeric_anomaly",
-                    severity=min(10, 3 + outlier_count),
-                    reason=(
-                        f"Column '{col}' has {outlier_count} outliers by IQR rule; values outside [{lower:.2f}, {upper:.2f}] are suspicious."
-                    ),
-                    evidence={
-                        "column": col,
-                        "outlier_count": outlier_count,
-                        "bounds": {"lower": float(lower), "upper": float(upper)},
-                    },
-                )
-            )
+    # The detectors need the production records (part_number, weight_kg, ...).
+    # If the caller passed the customer lookup by mistake, load the real file.
+    if "part_number" not in df.columns:
+        df = pd.read_csv(DEFAULT_DATASET_PATH)
+    customers = pd.read_csv(CUSTOMERS_PATH)
 
-    missing_by_col = df.isna().sum()
-    missing_cols = missing_by_col[missing_by_col > 0]
-    for col, cnt in missing_cols.items():
-        ratio = float(cnt) / max(1, len(df))
-        if ratio >= 0.2:
-            findings.append(
-                Finding(
-                    finding_id=f"F-MISS-{col}",
-                    finding_type="missing_data",
-                    severity=min(10, 2 + int(ratio * 10)),
-                    reason=(
-                        f"Column '{col}' is missing in {cnt}/{len(df)} rows ({ratio:.1%}), reducing confidence in decisions."
-                    ),
-                    evidence={
-                        "column": col,
-                        "missing_count": int(cnt),
-                        "missing_ratio": ratio,
-                    },
-                )
-            )
+    store = MemoryStore(db_path=str(APP_DIR / "pipeline_memory.db"))
+    store.forget()  # fresh run each pipeline invocation
 
-    return findings
+    detect_exact_duplicates(df, store)
+    detect_orphaned_customers(df, customers, store)
+    detect_impossible_values(df, store)
+    detect_near_duplicate_variants(df, store)
+    detect_unit_format_drift(df, store)
+    detect_decimal_shift_weights(df, store)
+
+    raw = store.recall()                    # shared-contract findings (~742)
+    scored = score_findings(raw, df)        # adds calibrated confidence + triage
+    return [_to_finding(f) for f in scored]
 
 
 def _agent_2_rank_it(findings: list[Finding]) -> list[dict[str, Any]]:
-    sorted_findings = sorted(findings, key=lambda f: (-f.severity, f.finding_id))
+    def _conf(f: Finding) -> float:
+        return float(f.evidence.get("confidence", 0.0)) if isinstance(f.evidence, dict) else 0.0
+
+    sorted_findings = sorted(
+        findings, key=lambda f: (-f.severity, -_conf(f), f.finding_id)
+    )
     ranked: list[dict[str, Any]] = []
     for rank, f in enumerate(sorted_findings, start=1):
+        c = _conf(f)
         ranked.append(
             {
                 "rank": rank,
                 "finding": asdict(f),
                 "ranking_reason": (
-                    f"Ranked #{rank} because severity={f.severity}. Higher severity indicates greater business and data quality risk."
+                    f"Ranked #{rank}: severity={f.severity}, confidence={c:.0%}. "
+                    f"The worst and most-certain issues are surfaced first."
                 ),
             }
         )
@@ -178,26 +188,31 @@ def _agent_3_act_on_it(ranked: list[dict[str, Any]], df: pd.DataFrame) -> list[d
     actions: list[dict[str, Any]] = []
     for item in ranked:
         finding = item["finding"]
-        severity = int(finding["severity"])
-        ftype = finding["finding_type"]
+        ev = finding.get("evidence", {}) or {}
+        triage = ev.get("triage", "needs_review")
+        conf = float(ev.get("confidence", 0.0))
+        fix = ev.get("suggested_fix") or "Apply the suggested correction."
 
-        if ftype == "duplicate_rows":
+        if triage == "auto_fixed":
             action = "fix"
-            detail = "Remove duplicate rows and retain first occurrence."
+            detail = fix
             reason = (
-                "Duplicates are deterministic data-quality defects; safe auto-fix improves metric integrity."
+                f"Confidence {conf:.0%} (auto-fix tier): the evidence is decisive, "
+                f"so the correction is applied with a logged audit record."
             )
-        elif severity >= 8:
+        elif triage == "needs_review":
             action = "escalate"
-            detail = "Escalate to domain expert for approval before data changes."
+            detail = "Escalate to the compliance officer before any change."
             reason = (
-                "High-severity findings can materially affect compliance or customer impact and need human oversight."
+                f"Confidence {conf:.0%} (needs-review tier): too uncertain to auto-fix; "
+                f"a human must decide."
             )
-        else:
+        else:  # quick_check
             action = "flag"
-            detail = "Flag record set for manual review in next QA cycle."
+            detail = f"Flag for a 10-second human confirmation. {fix}"
             reason = (
-                "Medium/low severity does not justify unattended mutation; keeping an auditable flag is safer."
+                f"Confidence {conf:.0%} (quick-check tier): likely a real issue, but "
+                f"worth a quick human glance before fixing."
             )
 
         actions.append(
@@ -226,15 +241,45 @@ def _agent_4_explain_it(
     lines.append(f"Rows analyzed: {row_count}")
     lines.append(f"Generated at (UTC): {datetime.now(UTC).isoformat()}")
     lines.append("")
+
+    # Confidence-calibrated summary (Bayesian / PyMC layer).
+    confs = [
+        float(it["finding"]["evidence"].get("confidence", 0.0))
+        for it in ranked
+        if isinstance(it["finding"].get("evidence"), dict)
+    ]
+    triage_counts: dict[str, int] = {}
+    total_impact = 0.0
+    for it in ranked:
+        ev = it["finding"].get("evidence", {}) or {}
+        t = ev.get("triage", "unknown")
+        triage_counts[t] = triage_counts.get(t, 0) + 1
+        total_impact += float(ev.get("impact_usd") or 0.0)
+    mean_conf = sum(confs) / len(confs) if confs else 0.0
+    lines.append("## Summary")
+    lines.append(f"- Findings: {len(ranked)}")
+    lines.append(f"- Mean confidence: {mean_conf:.0%}")
+    lines.append(
+        "- Triage: " + ", ".join(f"{k}={v}" for k, v in sorted(triage_counts.items()))
+    )
+    lines.append(f"- Estimated exposure: ${total_impact:,.0f}")
+    lines.append("")
     lines.append("## Prioritized Findings")
     lines.append("")
 
-    action_by_id = {a["finding_id"]: a for a in actions}
+    # Map by rank (unique) — record_ids can repeat across issue types.
+    action_by_rank = {a["rank"]: a for a in actions}
     for item in ranked:
         finding = item["finding"]
-        action = action_by_id.get(finding["finding_id"], {})
+        action = action_by_rank.get(item["rank"], {})
         lines.append(
             f"- Rank {item['rank']}: {finding['finding_id']} ({finding['finding_type']}, severity={finding['severity']})"
+        )
+        ev = finding.get("evidence", {}) or {}
+        lines.append(
+            f"  - Confidence: {float(ev.get('confidence', 0.0)):.0%} | "
+            f"Triage: {ev.get('triage', 'n/a')} | "
+            f"Impact: ${float(ev.get('impact_usd') or 0.0):,.0f}"
         )
         lines.append(f"  - Finding reason: {finding['reason']}")
         lines.append(f"  - Ranking reason: {item['ranking_reason']}")
