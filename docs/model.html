@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AuditReady — The Confidence Model</title>
+<script>
+  window.MathJax = { tex: { inlineMath: [['$','$'],['\\(','\\)']], displayMath: [['$$','$$'],['\\[','\\]']] } };
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" id="MathJax-script" async></script>
+<style>
+  :root{--bg:#0b1220;--panel:#121c2e;--line:#22304a;--text:#e6edf6;--muted:#8aa0bd;--accent:#5b9dff;--amber:#e0a13a;--red:#e0556e;--green:#1fb87a}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.65}
+  .wrap{max-width:860px;margin:0 auto;padding:40px 28px 80px}
+  h1{font-size:26px;margin:0 0 4px} .sub{color:var(--muted);margin-bottom:8px}
+  h2{font-size:19px;margin:34px 0 10px;border-bottom:1px solid var(--line);padding-bottom:6px}
+  h3{font-size:15px;margin:22px 0 6px;color:#cfe0f5}
+  p,li{font-size:15px} code{background:#0f1828;border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:13px}
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin:16px 0}
+  .warn{border-left:4px solid var(--amber)} .prop{border-left:4px solid var(--green)} .q{border-left:4px solid var(--accent)}
+  a{color:var(--accent)} .tag{display:inline-block;background:#0f1828;border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:12px;color:var(--muted);margin-right:6px}
+  mjx-container{overflow-x:auto;overflow-y:hidden}
+  nav a{margin-right:14px;font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AuditReady — The Confidence Model</h1>
+  <div class="sub">Hierarchical Bayesian per-part weight model · methodology &amp; open questions</div>
+  <nav><a href="./index.html">← dashboard</a><a href="https://github.com/shageenthsandrakumar/audit_ready/blob/main/my-first-agent/app/confidence.py">confidence.py</a></nav>
+
+  <p><span class="tag">scope</span> This applies only to the <code>decimal_shift_weight</code> class. The five structural classes (duplicates, orphans, impossible values, near-dups, unit drift) use evidence-graded priors in <code>tier1_confidence</code>, not this model.</p>
+
+  <h2>1. Generative model</h2>
+  <p>Work in $y=\log_{10}(\text{weight})$. Hierarchical, partially pooled across parts $p$:</p>
+  $$\mu_0,\ \tau,\ \sigma \quad\text{(global mean, between-part SD, within-part SD)}$$
+  $$\theta_p \sim \mathcal{N}(\mu_0,\ \tau^2)\qquad\text{(per-part true log-weight)}$$
+  $$y_{pj}\mid\theta_p \sim \mathcal{N}(\theta_p,\ \sigma^2)\qquad(\text{StudentT}_\nu\text{ in the PyMC path})$$
+
+  <h2>2. Fitting $\theta_p$ — empirical-Bayes default</h2>
+  <p>Conjugate Normal–Normal with <b>robust</b> sufficient statistics so seeded errors don't poison the fit: $\bar y_p=\operatorname{median}_p$, and $\sigma=1.4826\cdot\operatorname{median}(\mathrm{MAD}_p)$.</p>
+  <p>With $w_{\text{data}}=n_p/\sigma^2$ and $w_{\text{prior}}=1/\tau^2$, the shrinkage posterior (partial pooling):</p>
+  $$\theta_p=\frac{w_{\text{data}}\,\bar y_p+w_{\text{prior}}\,\mu_0}{w_{\text{data}}+w_{\text{prior}}},\qquad \operatorname{Var}(\theta_p)=\frac{1}{w_{\text{data}}+w_{\text{prior}}}$$
+  $$\text{pred\_sd}_p=\sqrt{\sigma^2+\operatorname{Var}(\theta_p)}\quad(\text{posterior-predictive SD for a new obs in } p)$$
+  <p>Rare parts get $\theta_p$ pulled toward $\mu_0$ and a fatter $\text{pred\_sd}_p$ — that's the pooling earning its keep.</p>
+
+  <h2>3. The error probability</h2>
+  <p>A two-component mixture at the single-observation level — Bayesian $H_0$ vs $H_1$:</p>
+  $$f_0(y)=\mathcal{N}\!\big(y;\ \theta_p,\ \text{pred\_sd}_p\big)\qquad(\text{genuine})$$
+  $$f_1(y)=\mathcal{N}\!\big(y;\ \mu_0,\ \sigma_{\text{alt}}{=}2.0\big)\qquad(\text{``error'': broad, } \sim 6 \text{ decades})$$
+  $$\pi=P(H_1)=0.17\;=\;850/5000$$
+  $$\boxed{\,P(\text{error}\mid y)=\frac{\pi\,f_1(y)}{\pi\,f_1(y)+(1-\pi)\,f_0(y)}\,}$$
+  <p>That posterior <i>is</i> the confidence for the weight class. <code>best_decimal_correction</code> is a separate $\arg\max$: it tests $y+k$ for $k\in\{\pm1,\pm2,\pm3\}$ and reports the $k$ whose $f_0(y{+}k)$ beats $f_0(y)$ by $>100\times$.</p>
+
+  <h2>4. Where it's shaky</h2>
+  <div class="box warn">
+    <p>Everything hinges on $f_1$, the weakest object in the file:</p>
+    <ol>
+      <li><b>Location is mis-specified.</b> $H_1$ is centered at $\mu_0$, but a decimal-shift error isn't drawn toward the global mean — it's the part's own truth displaced by an integer, $y\approx\theta_p+k$.</li>
+      <li><b>Width is a free Jeffreys–Lindley knob.</b> Near the bulk $f_1\propto 1/\sigma_{\text{alt}}$, so the Bayes factor — and thus $P(\text{error})$ — scales directly with the arbitrary nuisance $\sigma_{\text{alt}}=2.0$. Classic vague-alternative pathology.</li>
+      <li><b>Two-step plug-in, not a joint posterior.</b> We fit $\theta$ on (robustly) the inliers, then ask each point $H_0/H_1$ — we never marginalize a latent error-indicator during the fit. The robust median is a band-aid for not modeling the mixture.</li>
+    </ol>
+  </div>
+
+  <h2>5. Proposed fix</h2>
+  <div class="box prop">
+    <p>Make $H_1$ <b>generative of the actual seeding process</b> instead of a vague Gaussian:</p>
+    $$f_1(y)=\sum_{k\neq 0} w_k\,\mathcal{N}\!\big(y;\ \theta_p+k,\ \text{pred\_sd}_p\big),\qquad w_k=\text{prior over shift magnitude (e.g. geometric, favoring }\pm1)$$
+    <p>i.e. <i>“an error looks like the truth shifted by a power of ten.”</i> This (a) removes the location/width arbitrariness — $\sigma$ is shared with $H_0$, no free knob; (b) <b>unifies</b> <code>error_probability</code> and <code>best_decimal_correction</code> — the correction is $\arg\max_k$ of the same components; (c) is honestly the data-generating process.</p>
+  </div>
+
+  <h3>Calibration without labels</h3>
+  <p>We don't have the answer key, but we know the aggregate: 850 seeded issues. So a label-free, first-moment check:</p>
+  $$\mathbb{E}[\#\text{errors}]=\sum_i P(\text{error}_i)\ \stackrel{?}{\approx}\ 850.$$
+  <p>If the posteriors are calibrated in aggregate, that sum lands near the known count — defensible to a judge, no labels required.</p>
+
+  <h2>6. Open questions (for the modeling lead)</h2>
+  <div class="box q">
+    <ol>
+      <li>Is the <b>decimal-shift mixture</b> the right $H_1$, or do we add a component for non-shift errors (typos, unit confusion)? What prior $w_k$ over the shift magnitudes?</li>
+      <li>Is $\sum_i P_i \approx 850$ a legitimate <b>calibration</b> claim, or only a first-moment sanity check we shouldn't oversell? What's the honest framing?</li>
+      <li>Worth marginalizing the latent error indicator in the fit (a proper mixture / EM) instead of the robust-median plug-in — or is the two-step defensible given the time?</li>
+    </ol>
+  </div>
+</div>
+</body>
+</html>
