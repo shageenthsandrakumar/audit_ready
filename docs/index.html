@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AuditReady — Data Rescue Copilot</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#121c2e; --panel2:#0f1828; --line:#22304a;
+    --text:#e6edf6; --muted:#8aa0bd; --accent:#5b9dff;
+    --green:#1fb87a; --amber:#e0a13a; --red:#e0556e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+       background:var(--bg);color:var(--text);}
+  header{padding:22px 32px;border-bottom:1px solid var(--line);
+         display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;background:var(--panel2)}
+  header h1{margin:0;font-size:20px;letter-spacing:.2px}
+  header .tag{color:var(--muted);font-size:13px}
+  header .right{margin-left:auto;font-size:12px;color:var(--muted)}
+  .wrap{padding:24px 32px;max-width:1500px;margin:0 auto}
+  .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+  .card .label{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.6px}
+  .card .num{font-size:30px;font-weight:700;margin-top:6px}
+  .card .sub{color:var(--muted);font-size:12px;margin-top:4px}
+  .lanes{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px}
+  .lane{background:var(--panel);border:1px solid var(--line);border-left-width:4px;
+        border-radius:12px;padding:14px 18px;cursor:pointer;transition:.15s}
+  .lane:hover{background:var(--panel2)}
+  .lane.active{outline:2px solid var(--accent)}
+  .lane .n{font-size:24px;font-weight:700}
+  .lane .l{font-size:13px;color:var(--muted)}
+  .grid2{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;margin-bottom:20px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+  .panel h3{margin:0 0 4px;font-size:14px}
+  .panel .hint{color:var(--muted);font-size:12px;margin-bottom:12px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:9px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+  th{color:var(--muted);font-weight:600;position:sticky;top:0;background:var(--panel);cursor:pointer;user-select:none}
+  tr.f:hover{background:var(--panel2)}
+  .badge{padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;color:#06101f;display:inline-block}
+  .b-green{background:var(--green)} .b-amber{background:var(--amber)} .b-red{background:var(--red)}
+  .conf{display:inline-flex;align-items:center;gap:8px}
+  .bar{width:54px;height:6px;border-radius:4px;background:#24344f;overflow:hidden}
+  .bar>span{display:block;height:100%}
+  .fix{color:var(--muted)}
+  .det{background:var(--panel2);font-size:12.5px;color:#cfe0f5}
+  .det td{padding:14px 18px}
+  .controls{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+  input,select{background:var(--panel2);color:var(--text);border:1px solid var(--line);
+               border-radius:8px;padding:7px 10px;font-size:13px}
+  .pill{font-size:11px;color:var(--muted)}
+  a{color:var(--accent)}
+  .foot{color:var(--muted);font-size:12px;margin:24px 0 40px;line-height:1.6}
+</style>
+</head>
+<body>
+<header>
+  <h1>🛡️ AuditReady</h1>
+  <span class="tag">Multi-agent data-rescue copilot · Track 01 · <span id="ds"></span></span>
+  <span class="right">data: <a href="./audit_findings.json">audit_findings.json</a></span>
+</header>
+
+<div class="wrap">
+  <div class="cards" id="cards"></div>
+  <div class="lanes" id="lanes"></div>
+
+  <div class="grid2">
+    <div class="panel">
+      <h3>Confidence × Impact — the risk quadrant</h3>
+      <div class="hint">Top-right = high-impact <i>and</i> confident → fix first. Bottom-right = high-impact but <i>uncertain</i> → a human must look. Color = triage lane.</div>
+      <canvas id="scatter" height="150"></canvas>
+    </div>
+    <div class="panel">
+      <h3>Confidence distribution</h3>
+      <div class="hint">Honest spread, not uniform 95%. Deterministic errors near 1.0; genuinely ambiguous ones (orphaned customers, case drift) correctly hedged toward the review line.</div>
+      <canvas id="hist" height="150"></canvas>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>Findings</h3>
+    <div class="controls">
+      <input id="q" placeholder="Search record / issue / evidence…" style="min-width:260px">
+      <select id="issue"><option value="">All issue types</option></select>
+      <span class="pill" id="count"></span>
+      <span class="pill" style="margin-left:auto">Click a row for the evidence chain</span>
+    </div>
+    <div style="max-height:560px;overflow:auto;border:1px solid var(--line);border-radius:10px">
+      <table id="tbl">
+        <thead><tr>
+          <th data-k="rank">#</th><th data-k="record_id">Record</th>
+          <th data-k="issue_type">Issue</th><th data-k="confidence">Confidence</th>
+          <th data-k="triage">Triage</th><th data-k="action">Action</th>
+          <th data-k="impact_usd">Impact</th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="foot">
+    <b>How to read this:</b> every finding is detected on the real 5,000-record benchmark, scored with a hierarchical Bayesian confidence model, and routed to a triage lane — <span class="badge b-green">auto-fix</span> when the evidence is decisive, <span class="badge b-amber">quick-check</span> for a 10-second human glance, <span class="badge b-red">needs-review</span> when the agent genuinely can't tell an error from legitimate data. Built for M-AGENTS / vibeFORWARD. ·
+    <a href="https://github.com/shageenthsandrakumar/audit_ready">source</a>
+  </div>
+</div>
+
+<script>
+const C = {auto_fixed:'green', quick_check:'amber', needs_review:'red'};
+const BADGE = {auto_fixed:'b-green', quick_check:'b-amber', needs_review:'b-red'};
+const COL = {green:'#1fb87a', amber:'#e0a13a', red:'#e0556e'};
+let DATA, view, sortK='rank', sortAsc=true, laneFilter='';
+
+const $=s=>document.querySelector(s);
+const money=n=>'$'+Math.round(n||0).toLocaleString();
+
+fetch('./audit_findings.json').then(r=>r.json()).then(d=>{ DATA=d; init(); });
+
+function init(){
+  const s=DATA.summary;
+  $('#ds').textContent = s.dataset+' · '+s.rows_analyzed.toLocaleString()+' records';
+  const trust = Math.round(100*(1 - s.total_findings/s.rows_analyzed));
+  $('#cards').innerHTML = card('Warehouse Trust Score', trust+'%', (s.rows_analyzed-s.total_findings).toLocaleString()+' of '+s.rows_analyzed.toLocaleString()+' records clean')
+    + card('Findings', s.total_findings, 'across 6 issue types')
+    + card('Mean confidence', Math.round(s.mean_confidence*100)+'%', 'calibrated, not black-box')
+    + card('Audit exposure', money(s.estimated_exposure_usd), 'estimated $ at risk');
+
+  const t=s.triage_counts;
+  $('#lanes').innerHTML =
+     lane('auto_fixed','Auto-fix', t.auto_fixed||0, 'decisive evidence — apply with audit record')
+   + lane('quick_check','Quick-check', t.quick_check||0, 'likely real — 10-second human glance')
+   + lane('needs_review','Needs review', t.needs_review||0, 'agent is unsure — defer to a human');
+  document.querySelectorAll('.lane').forEach(el=>el.onclick=()=>{
+    laneFilter = laneFilter===el.dataset.k ? '' : el.dataset.k;
+    document.querySelectorAll('.lane').forEach(x=>x.classList.toggle('active', x.dataset.k===laneFilter));
+    render();
+  });
+
+  const iss=$('#issue');
+  Object.keys(s.issue_type_counts).sort().forEach(k=>{
+    const o=document.createElement('option'); o.value=k; o.textContent=k+' ('+s.issue_type_counts[k]+')'; iss.appendChild(o);
+  });
+  $('#q').oninput=render; iss.onchange=render;
+  document.querySelectorAll('th[data-k]').forEach(th=>th.onclick=()=>{
+    const k=th.dataset.k; if(sortK===k) sortAsc=!sortAsc; else {sortK=k;sortAsc=true;} render();
+  });
+
+  drawScatter(); drawHist(); render();
+}
+
+function card(l,n,sub){return `<div class="card"><div class="label">${l}</div><div class="num">${n}</div><div class="sub">${sub}</div></div>`}
+function lane(k,l,n,sub){return `<div class="lane b-${C[k]}" data-k="${k}" style="border-left-color:${COL[C[k]]}"><div class="n">${n}</div><div class="l">${l}</div><div class="l" style="font-size:11px">${sub}</div></div>`}
+
+function filtered(){
+  const q=$('#q').value.toLowerCase(), iss=$('#issue').value;
+  return DATA.findings.filter(f=>{
+    if(laneFilter && f.triage!==laneFilter) return false;
+    if(iss && f.issue_type!==iss) return false;
+    if(q){ const hay=(f.record_id+' '+f.issue_type+' '+(f.evidence||'')+' '+(f.suggested_fix||'')).toLowerCase();
+           if(!hay.includes(q)) return false; }
+    return true;
+  });
+}
+
+function render(){
+  view=filtered().sort((a,b)=>{
+    let x=a[sortK], y=b[sortK];
+    if(typeof x==='string'){x=x||'';y=y||'';return sortAsc?x.localeCompare(y):y.localeCompare(x);}
+    x=x||0;y=y||0;return sortAsc?x-y:y-x;
+  });
+  $('#count').textContent = view.length+' of '+DATA.findings.length+' findings'+(laneFilter?' · '+laneFilter:'');
+  const rows=$('#rows'); rows.innerHTML='';
+  view.slice(0,400).forEach(f=>{
+    const pct=Math.round((f.confidence||0)*100);
+    const col=COL[C[f.triage]]||'#888';
+    const tr=document.createElement('tr'); tr.className='f';
+    tr.innerHTML=`<td>${f.rank}</td><td>${f.record_id}</td><td>${f.issue_type}</td>
+      <td><span class="conf"><span class="bar"><span style="width:${pct}%;background:${col}"></span></span>${pct}%</span></td>
+      <td><span class="badge ${BADGE[f.triage]}">${(f.triage||'').replace('_','-')}</span></td>
+      <td><b>${f.action||''}</b></td><td>${money(f.impact_usd)}</td>`;
+    const det=document.createElement('tr'); det.className='det'; det.style.display='none';
+    det.innerHTML=`<td colspan="7"><b>Why:</b> ${f.evidence||'—'}<br>
+      <b>Suggested fix:</b> ${f.suggested_fix||'—'}<br>
+      <b>Action reason:</b> ${f.action_reason||'—'}<br>
+      <span style="color:var(--muted)">part ${f.part_number||'—'} · plant ${f.plant_id||'—'} · severity ${f.severity||'—'}</span></td>`;
+    tr.onclick=()=>{det.style.display = det.style.display==='none'?'table-row':'none';};
+    rows.appendChild(tr); rows.appendChild(det);
+  });
+}
+
+function drawScatter(){
+  const pts={green:[],amber:[],red:[]};
+  DATA.findings.forEach(f=>{ (pts[C[f.triage]]||pts.green).push({x:(f.confidence||0)*100, y:(f.impact_usd||0)}); });
+  new Chart($('#scatter'),{type:'scatter',data:{datasets:Object.keys(pts).map(c=>({
+      label:c, data:pts[c], backgroundColor:COL[c]+'cc', pointRadius:3
+    }))},
+    options:{plugins:{legend:{display:false}},
+      scales:{x:{title:{display:true,text:'Confidence (%)',color:'#8aa0bd'},min:40,max:102,ticks:{color:'#8aa0bd'},grid:{color:'#1c2940'}},
+              y:{title:{display:true,text:'Impact ($)',color:'#8aa0bd'},ticks:{color:'#8aa0bd',callback:v=>'$'+(v/1000)+'k'},grid:{color:'#1c2940'}}}}});
+}
+function drawHist(){
+  const bins=new Array(10).fill(0);
+  DATA.findings.forEach(f=>{let b=Math.min(9,Math.floor((f.confidence||0)*10));bins[b]++;});
+  new Chart($('#hist'),{type:'bar',
+    data:{labels:bins.map((_,i)=>(i*10)+'–'+(i*10+10)+'%'),
+      datasets:[{data:bins,backgroundColor:bins.map((_,i)=>i<6?COL.red:(i<9?COL.amber:COL.green))}]},
+    options:{plugins:{legend:{display:false}},
+      scales:{x:{ticks:{color:'#8aa0bd',maxRotation:60,minRotation:60},grid:{display:false}},
+              y:{ticks:{color:'#8aa0bd'},grid:{color:'#1c2940'}}}}});
+}
+</script>
+</body>
+</html>
