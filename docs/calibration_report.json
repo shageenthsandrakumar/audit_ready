@@ -1,0 +1,138 @@
+{
+  "n_candidate_pairs": 25242,
+  "n_injected_true_matches": 800,
+  "estimated_prevalence": 0.03222,
+  "expected_matches_model": 813.3,
+  "recovered_at_0.5": 787,
+  "true_matches_recalled_at_0.5": 759,
+  "false_matches_at_0.5": 28,
+  "ece": 0.0019,
+  "reliability_bins": [
+    {
+      "lo": 0.0,
+      "hi": 0.1,
+      "n": 24308,
+      "pred": 0.0001,
+      "emp": 0.0
+    },
+    {
+      "lo": 0.1,
+      "hi": 0.2,
+      "n": 86,
+      "pred": 0.1087,
+      "emp": 0.2093
+    },
+    {
+      "lo": 0.2,
+      "hi": 0.3,
+      "n": 57,
+      "pred": 0.2546,
+      "emp": 0.4035
+    },
+    {
+      "lo": 0.3,
+      "hi": 0.4,
+      "n": 2,
+      "pred": 0.306,
+      "emp": 0.0
+    },
+    {
+      "lo": 0.4,
+      "hi": 0.5,
+      "n": 2,
+      "pred": 0.468,
+      "emp": 0.0
+    },
+    {
+      "lo": 0.5,
+      "hi": 0.6,
+      "n": 0,
+      "pred": null,
+      "emp": null
+    },
+    {
+      "lo": 0.6,
+      "hi": 0.7,
+      "n": 0,
+      "pred": null,
+      "emp": null
+    },
+    {
+      "lo": 0.7,
+      "hi": 0.8,
+      "n": 0,
+      "pred": null,
+      "emp": null
+    },
+    {
+      "lo": 0.8,
+      "hi": 0.9,
+      "n": 0,
+      "pred": null,
+      "emp": null
+    },
+    {
+      "lo": 0.9,
+      "hi": 1.0,
+      "n": 787,
+      "pred": 0.9971,
+      "emp": 0.9644
+    }
+  ],
+  "field_weights": [
+    {
+      "field": "plant_id",
+      "m_k": 0.4906,
+      "u_k": 0.4995,
+      "log2(m/u)": -0.03
+    },
+    {
+      "field": "quantity",
+      "m_k": 0.4908,
+      "u_k": 0.0001,
+      "log2(m/u)": 12.66
+    },
+    {
+      "field": "unit",
+      "m_k": 1.0,
+      "u_k": 1.0,
+      "log2(m/u)": 0.0
+    },
+    {
+      "field": "weight_kg",
+      "m_k": 0.4868,
+      "u_k": 0.0109,
+      "log2(m/u)": 5.49
+    },
+    {
+      "field": "production_date",
+      "m_k": 0.4927,
+      "u_k": 0.0014,
+      "log2(m/u)": 8.5
+    },
+    {
+      "field": "ship_date",
+      "m_k": 0.522,
+      "u_k": 0.0001,
+      "log2(m/u)": 13.14
+    },
+    {
+      "field": "customer_id",
+      "m_k": 0.9598,
+      "u_k": 0.0048,
+      "log2(m/u)": 7.64
+    },
+    {
+      "field": "status",
+      "m_k": 0.5976,
+      "u_k": 0.3385,
+      "log2(m/u)": 0.82
+    },
+    {
+      "field": "last_modified",
+      "m_k": 0.546,
+      "u_k": 0.0004,
+      "log2(m/u)": 10.55
+    }
+  ]
+}
