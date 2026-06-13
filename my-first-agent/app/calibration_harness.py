@@ -85,6 +85,64 @@ def reliability(proba: np.ndarray, is_match: np.ndarray, n_bins: int = 10) -> tu
     return bins, float(ece)
 
 
+def operating_curve(proba: np.ndarray, is_match: np.ndarray, grid: int = 50) -> list[dict]:
+    """False-match rate and recall as a function of the decision threshold.
+
+    This is the operational curve of BDA3 sec 1.7 (their Figure 1.4): as we lower
+    the threshold we declare more matches and the error rate rises. It lets a
+    decision-maker pick a threshold for an acceptable false-match rate instead of
+    guessing a cutoff.
+    """
+    n_true = max(int(is_match.sum()), 1)
+    out = []
+    for t in np.linspace(0.01, 0.99, grid):
+        declared = proba >= t
+        d = int(declared.sum())
+        tp = int((declared & (is_match == 1)).sum())
+        fmr = (d - tp) / d if d else 0.0
+        out.append({"t": round(float(t), 3), "declared": d,
+                    "false_match_rate": round(fmr, 4), "recall": round(tp / n_true, 4)})
+    return out
+
+
+def decision_thresholds(curve: list[dict], fmr_tol: float = 0.01) -> dict:
+    """Principled triage cutoffs from the operating curve.
+
+    auto-fix  : lowest threshold whose false-match rate stays <= fmr_tol
+                (safe to apply automatically with an audit record)
+    needs-review floor : 0.5 (below this, the model favors non-match)
+    Between the two sits 'quick-check'. This replaces hand-set 0.60/0.90 cutoffs
+    with values derived from a target error rate (decision theory, MacKay Ch 36).
+    """
+    auto = next((c["t"] for c in curve if c["false_match_rate"] <= fmr_tol), 0.99)
+    return {"auto_fix": round(auto, 3), "needs_review_floor": 0.5, "fmr_tolerance": fmr_tol}
+
+
+def posterior_predictive(linker: FellegiSunterLinker, Gamma_obs: np.ndarray, n_rep: int = 300) -> dict:
+    """Posterior predictive check (BDA3 sec 6.3) on the REAL data.
+
+    Draw replicated agreement-pattern datasets from the fitted model and compare
+    the distribution of agreement scores to the observed one. If the model fits,
+    the observed histogram lies inside the replicated band.
+    """
+    n, K = Gamma_obs.shape
+    obs = np.bincount(Gamma_obs.sum(axis=1).astype(int), minlength=K + 1)
+    reps = np.zeros((n_rep, K + 1))
+    for r in range(n_rep):
+        z = RNG.random(n) < linker.p
+        G = np.where(z[:, None], RNG.random((n, K)) < linker.m, RNG.random((n, K)) < linker.u)
+        reps[r] = np.bincount(G.sum(axis=1).astype(int), minlength=K + 1)
+    lo, hi = np.percentile(reps, [2.5, 97.5], axis=0)
+    return {
+        "score": list(range(K + 1)),
+        "observed": obs.tolist(),
+        "rep_mean": np.round(reps.mean(axis=0), 1).tolist(),
+        "rep_lo": np.round(lo, 1).tolist(),
+        "rep_hi": np.round(hi, 1).tolist(),
+        "inside_band": [bool(lo[i] <= obs[i] <= hi[i]) for i in range(K + 1)],
+    }
+
+
 def run(n_inject: int = 500) -> dict:
     root = pathlib.Path(__file__).resolve().parents[2]
     df = pd.read_csv(root / "data" / "track01_data_rescue.csv")
@@ -97,6 +155,8 @@ def run(n_inject: int = 500) -> dict:
     is_match = np.array([frozenset(p) in truth for p in ids], dtype=float)
 
     bins, ece = reliability(proba, is_match)
+    curve = operating_curve(proba, is_match)
+    thresholds = decision_thresholds(curve)
     est_matches = float(proba.sum())
     result = {
         "n_candidate_pairs": len(ids),
@@ -108,8 +168,17 @@ def run(n_inject: int = 500) -> dict:
         "false_matches_at_0.5": int(((proba >= 0.5) & (is_match == 0)).sum()),
         "ece": round(ece, 4),
         "reliability_bins": bins,
+        "operating_curve": curve,
+        "decision_thresholds": thresholds,
         "field_weights": linker.weights_table().to_dict("records"),
     }
+
+    # Posterior predictive check on the REAL (un-injected) data.
+    real_linker = FellegiSunterLinker()
+    G_real, _ = real_linker.candidate_pairs(df)
+    real_linker.fit(G_real)
+    result["ppc_real"] = posterior_predictive(real_linker, G_real)
+    result["ppc_real"]["fitted_prevalence"] = round(real_linker.p, 5)
     out = root / "data" / "calibration_report.json"
     out.write_text(json.dumps(result, indent=2), encoding="utf-8")
     return result
