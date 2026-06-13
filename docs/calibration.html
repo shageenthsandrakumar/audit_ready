@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AuditReady — Calibration Validation</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{--bg:#0b1220;--panel:#121c2e;--panel2:#0f1828;--line:#22304a;--text:#e6edf6;
+        --muted:#8aa0bd;--accent:#5b9dff;--green:#1fb87a;--amber:#e0a13a;--red:#e0556e}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.6}
+  .wrap{max-width:1040px;margin:0 auto;padding:34px 28px 80px}
+  h1{font-size:24px;margin:0 0 4px} .sub{color:var(--muted);margin-bottom:6px}
+  nav a{margin-right:14px;font-size:13px;color:var(--accent)}
+  h2{font-size:17px;margin:30px 0 10px;border-bottom:1px solid var(--line);padding-bottom:6px;color:#cfe0f5}
+  .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:18px 0}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .card .label{color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px}
+  .card .num{font-size:24px;font-weight:700;margin-top:5px}
+  .card .sub{color:var(--muted);font-size:11px;margin-top:3px}
+  .grid2{display:grid;grid-template-columns:1.1fr .9fr;gap:18px;align-items:start}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+  .panel h3{margin:0 0 4px;font-size:14px} .panel .hint{color:var(--muted);font-size:12px;margin-bottom:10px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:7px 9px;border-bottom:1px solid var(--line);text-align:left}
+  th{color:var(--muted);font-weight:600}
+  .bar{display:inline-block;height:8px;background:var(--accent);border-radius:3px;vertical-align:middle}
+  .box{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--green);border-radius:10px;padding:14px 18px;margin:16px 0;font-size:14px}
+  code{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:1px 6px;font-size:12px}
+  .muted{color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎯 Calibration Validation</h1>
+  <div class="sub">Does the record-linkage model's <b>P(match)</b> mean what it says?</div>
+  <nav><a href="./index.html">← dashboard</a><a href="./model.html">weight model</a><a href="./decimal_shift_explained.html">decimal-shift</a></nav>
+
+  <div class="box">
+    The benchmark's real errors are deterministic and <i>separable</i> — they can't test calibration, because there's no graded ambiguity. So we manufacture ground truth: inject fuzzy near-duplicates at a <b>known</b> rate (corrupting 1–6 fields), fit the Fellegi–Sunter model <b>unsupervised</b>, and ask whether <code>P(match)=q</code> actually means "q fraction are true duplicates." This is simulation-based calibration / posterior predictive checking (BDA3 §6.3).
+  </div>
+
+  <div class="cards" id="cards"></div>
+
+  <div class="grid2">
+    <div class="panel">
+      <h3>Reliability diagram</h3>
+      <div class="hint">Points on the dashed line = perfectly calibrated. Point size ∝ number of pairs in the bin.</div>
+      <canvas id="rel" height="150"></canvas>
+      <div class="muted" id="relnote" style="margin-top:8px"></div>
+    </div>
+    <div class="panel">
+      <h3>Per-field evidence weights</h3>
+      <div class="hint">Fellegi–Sunter <code>log₂(m/u)</code> — bits of evidence each field carries for "is this a true duplicate." Estimated from data, no labels.</div>
+      <table id="weights"><thead><tr><th>field</th><th>bits</th><th></th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <h2>What this proves</h2>
+  <p style="font-size:14.5px">The model recovers the injected error rate, recalls the duplicates, and its probabilities track the truth (low <b>ECE</b>). It is well-calibrated at the extremes and mildly <b>under</b>confident in the ambiguous middle — the known signature of the conditional-independence assumption (Fellegi–Sunter 1969), surfaced honestly by the check rather than hidden. On the clean benchmark, the same model correctly collapses to near-certainty.</p>
+  <p class="muted">Method: Fellegi–Sunter (1969); calibration via Belin–Rubin (1995) / BDA3 §1.7; validation via posterior predictive checking, BDA3 §6.3. Source: <a href="https://github.com/shageenthsandrakumar/audit_ready/blob/record-linkage-mixture/my-first-agent/app/calibration_harness.py">calibration_harness.py</a></p>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+fetch('./calibration_report.json').then(r=>r.json()).then(R=>{
+  const recall=(100*R['true_matches_recalled_at_0.5']/R.n_injected_true_matches).toFixed(1);
+  $('#cards').innerHTML =
+     card('Expected Calibration Error', R.ece, 'lower = better; 0 = perfect')
+   + card('Prevalence recovery', R.expected_matches_model+' / '+R.n_injected_true_matches, 'estimated vs true matches')
+   + card('Recall @ 0.5', recall+'%', R['true_matches_recalled_at_0.5']+' of '+R.n_injected_true_matches+' caught')
+   + card('Candidate pairs', R.n_candidate_pairs.toLocaleString(), 'scored unsupervised');
+
+  // reliability diagram
+  const pts=R.reliability_bins.filter(b=>b.n>0&&b.pred!=null)
+      .map(b=>({x:b.pred,y:b.emp,n:b.n}));
+  const maxn=Math.max(...pts.map(p=>p.n));
+  new Chart($('#rel'),{type:'scatter',
+    data:{datasets:[
+      {label:'model',data:pts,backgroundColor:'#5b9dffcc',borderColor:'#5b9dff',
+       pointRadius:pts.map(p=>4+14*Math.sqrt(p.n/maxn))},
+      {type:'line',label:'perfect',data:[{x:0,y:0},{x:1,y:1}],borderColor:'#8aa0bd',
+       borderDash:[6,5],pointRadius:0,borderWidth:1}
+    ]},
+    options:{plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.raw.n!=null?
+        `pred ${c.raw.x.toFixed(3)}, actual ${c.raw.y.toFixed(3)} (n=${c.raw.n})`:''}}},
+      scales:{x:{title:{display:true,text:'predicted P(match)',color:'#8aa0bd'},min:0,max:1,ticks:{color:'#8aa0bd'},grid:{color:'#1c2940'}},
+              y:{title:{display:true,text:'actual match rate',color:'#8aa0bd'},min:0,max:1,ticks:{color:'#8aa0bd'},grid:{color:'#1c2940'}}}}});
+  $('#relnote').textContent = `${R.n_candidate_pairs.toLocaleString()} pairs · most mass sits at P≈0 (true non-matches) and P≈1 (clean dups); the middle bins are the injected hard cases.`;
+
+  // field weights
+  const W=R.field_weights.slice().sort((a,b)=>b['log2(m/u)']-a['log2(m/u)']);
+  const mx=Math.max(...W.map(w=>w['log2(m/u)']));
+  $('#weights').querySelector('tbody').innerHTML = W.map(w=>{
+    const bits=w['log2(m/u)'];
+    return `<tr><td>${w.field}</td><td>${bits.toFixed(1)}</td>
+      <td><span class="bar" style="width:${Math.max(2,120*bits/mx)}px;background:${bits<0.5?'#e0556e':'#5b9dff'}"></span></td></tr>`;
+  }).join('');
+});
+function card(l,n,s){return `<div class="card"><div class="label">${l}</div><div class="num">${n}</div><div class="sub">${s}</div></div>`}
+</script>
+</body>
+</html>
