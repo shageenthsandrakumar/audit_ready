@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AuditReady — Watch the Agents Work</title>
+<style>
+  :root{
+    --bg:#070b16; --bg2:#0b1220; --panel:rgba(20,30,52,.65); --line:#22304a;
+    --text:#eaf1fb; --muted:#8aa0bd;
+    --cyan:#34d3e0; --blue:#5b9dff; --amber:#f1b24a; --green:#23c98a; --violet:#a78bfa; --red:#e0556e;
+    --glow:0 0 0 1px rgba(91,157,255,.25), 0 8px 40px rgba(8,16,34,.6);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:
+        radial-gradient(1200px 600px at 80% -10%, rgba(91,157,255,.10), transparent 60%),
+        radial-gradient(900px 500px at 0% 110%, rgba(167,139,250,.10), transparent 55%),
+        var(--bg);
+       color:var(--text);font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1120px;margin:0 auto;padding:30px 24px 90px}
+  .top{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  h1{font-size:28px;font-weight:800;margin:0;letter-spacing:-.4px;
+     background:linear-gradient(90deg,#fff,#bcd4ff 60%,var(--cyan));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{color:var(--muted);font-size:15px;margin:6px 0 2px}
+  nav a{margin-right:14px;font-size:13px;color:var(--blue);text-decoration:none}
+  nav a:hover{text-decoration:underline}
+
+  /* control bar */
+  .bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:22px 0 10px;
+       background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 16px;backdrop-filter:blur(10px)}
+  .btn{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);background:#101a2e;color:var(--text);
+       border-radius:10px;padding:9px 15px;font-size:14px;font-weight:600;cursor:pointer;transition:.15s}
+  .btn:hover{border-color:var(--blue);background:#13203a}
+  .btn.primary{background:linear-gradient(90deg,var(--blue),var(--cyan));color:#05101f;border:0}
+  .bar .sp{margin-left:auto}
+  select,input[type=range]{background:#0e1830;color:var(--text);border:1px solid var(--line);border-radius:9px;padding:7px 10px;font-size:13px}
+  .bar label{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-right:6px}
+
+  /* record chip */
+  .rec{display:flex;align-items:center;gap:12px;margin:10px 0 26px;font-size:14px;color:var(--muted)}
+  .rec .tag{font-family:ui-monospace,Consolas,Menlo,monospace;color:var(--text);background:#101a2e;border:1px solid var(--line);border-radius:8px;padding:3px 10px}
+
+  /* pipeline */
+  .pipe{position:relative;margin:8px 0 10px}
+  .track{position:absolute;top:42px;left:6%;right:6%;height:3px;background:linear-gradient(90deg,#1b2742,#243456);border-radius:3px;overflow:hidden}
+  .track .done{position:absolute;left:0;top:0;height:100%;width:0;background:linear-gradient(90deg,var(--cyan),var(--blue));box-shadow:0 0 14px var(--blue);transition:width .5s cubic-bezier(.4,0,.2,1)}
+  .token{position:absolute;top:35px;width:18px;height:18px;border-radius:50%;
+         background:radial-gradient(circle at 30% 30%,#fff,var(--cyan));box-shadow:0 0 18px 4px var(--cyan);
+         transform:translateX(-50%);transition:left .55s cubic-bezier(.5,0,.2,1);opacity:0;z-index:4}
+  .nodes{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;position:relative;z-index:2}
+  .node{display:flex;flex-direction:column;align-items:center;text-align:center}
+  .disc{width:84px;height:84px;border-radius:24px;display:grid;place-items:center;font-size:30px;
+        background:var(--panel);border:1px solid var(--line);transition:.35s;position:relative;backdrop-filter:blur(8px)}
+  .disc .ring{position:absolute;inset:-4px;border-radius:28px;border:2px solid transparent;transition:.35s}
+  .node.active .disc{transform:translateY(-4px) scale(1.05);border-color:transparent;box-shadow:var(--glow)}
+  .node.active .disc .ring{border-color:var(--ac);animation:spin 2.4s linear infinite, pulse 1.4s ease-in-out infinite}
+  .node.done .disc{border-color:var(--ac)}
+  .node .nm{font-weight:700;font-size:14px;margin-top:10px}
+  .node .st{font-size:11px;color:var(--muted);min-height:15px;text-transform:uppercase;letter-spacing:.5px}
+  .node.active .st{color:var(--ac)}
+  .node .chk{position:absolute;right:-4px;top:-4px;width:24px;height:24px;border-radius:50%;background:var(--ac);color:#05101f;
+             display:grid;place-items:center;font-size:14px;font-weight:800;opacity:0;transform:scale(.4);transition:.3s}
+  .node.done .chk{opacity:1;transform:scale(1)}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 var(--ac)}50%{box-shadow:0 0 22px 2px var(--ac)}}
+
+  /* detail cards */
+  .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:24px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:15px 16px;min-height:188px;
+        backdrop-filter:blur(10px);opacity:.45;transform:translateY(6px);transition:.4s;position:relative;overflow:hidden}
+  .card.on{opacity:1;transform:none;border-color:color-mix(in srgb,var(--ac) 55%,var(--line))}
+  .card.on::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:var(--ac)}
+  .card .lab{font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+  .card .h{font-weight:700;font-size:15px;margin:2px 0 10px;color:var(--ac)}
+  .card .b{font-size:13px;color:#cdddf3;min-height:90px}
+  .mono{font-family:ui-monospace,Consolas,Menlo,monospace}
+  .big{font-size:30px;font-weight:800;font-family:ui-monospace,Consolas,Menlo,monospace;line-height:1.1}
+  .hl{color:var(--red);font-weight:700} .ok{color:var(--green);font-weight:700}
+
+  /* gauge */
+  .gauge{height:9px;background:#0e1830;border-radius:6px;overflow:hidden;margin:8px 0}
+  .gauge>span{display:block;height:100%;width:0;border-radius:6px;background:linear-gradient(90deg,var(--blue),var(--cyan));transition:width .9s cubic-bezier(.3,0,.2,1)}
+
+  /* decision dial */
+  .dial{display:flex;gap:6px;margin-top:6px}
+  .dopt{flex:1;text-align:center;font-size:11px;font-weight:700;padding:6px 4px;border-radius:8px;background:#0e1830;color:var(--muted);border:1px solid var(--line);transition:.4s}
+  .dopt.sel{color:#05101f}
+  .pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:11px;font-weight:800;color:#05101f}
+
+  .foot{color:var(--muted);font-size:12px;margin-top:34px;line-height:1.7}
+  .cursor{display:inline-block;width:8px;background:var(--violet);margin-left:1px;animation:blink 1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+  @media(max-width:860px){.cards{grid-template-columns:1fr 1fr}.nodes{grid-template-columns:repeat(4,1fr)}.disc{width:62px;height:62px;font-size:22px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>Watch the agents work</h1>
+  </div>
+  <div class="sub">One real record, flowing through the four-agent audit pipeline — live, in your browser.</div>
+  <nav>
+    <a href="./index.html">← dashboard</a>
+    <a href="./explorer.html">live model explorer</a>
+    <a href="./verification.html">math verification</a>
+    <a href="./methodology.html">reasoning log</a>
+  </nav>
+
+  <div class="bar">
+    <button class="btn primary" id="play">▶ Play</button>
+    <button class="btn" id="step">⏭ Step</button>
+    <button class="btn" id="replay">↻ Replay</button>
+    <span style="margin-left:8px"><label>Record</label><select id="sel"></select></span>
+    <span class="sp"><label>Speed</label><input type="range" id="speed" min="0.5" max="2" step="0.25" value="1" style="width:110px;vertical-align:middle"></span>
+  </div>
+
+  <div class="rec">Now auditing <span class="tag" id="recId">—</span> <span id="recDesc"></span></div>
+
+  <div class="pipe">
+    <div class="track"><div class="done" id="done"></div></div>
+    <div class="token" id="token"></div>
+    <div class="nodes" id="nodes"></div>
+  </div>
+
+  <div class="cards" id="cards"></div>
+
+  <div class="foot">
+    Every number is computed from the real model — confidence &amp; Bayes factor from <a href="./explorer.html">the live engine</a>, decisions from the triage policy. Agents: Find · Rank · Act · Explain. No backend, no login. ·
+    <a href="https://github.com/shageenthsandrakumar/audit_ready/blob/main/docs/agents.html">source</a>
+  </div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+const SHIFTS=[-3,-2,-1,1,2,3];
+const AGENTS=[
+  {key:'find',  nm:'Find',   icon:'🔍', ac:'#34d3e0'},
+  {key:'rank',  nm:'Rank',   icon:'📊', ac:'#5b9dff'},
+  {key:'act',   nm:'Act',    icon:'🛠️', ac:'#23c98a'},
+  {key:'explain',nm:'Explain',icon:'💬', ac:'#a78bfa'},
+];
+let SHOW=[], WCASE={}, idx=0, gen=0, autoplay=false;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const speed=()=>+$('#speed').value;
+
+// --- model (matches confidence.py) for live Bayes factor on weight cases --- //
+function normpdf(x,mu,sd){const z=(x-mu)/sd;return Math.exp(-.5*z*z)/(sd*Math.sqrt(2*Math.PI));}
+function bayesFactor(c){const sd=Math.max(c.pred_sd,1e-3);const w=SHIFTS.map(k=>Math.pow(.3,Math.abs(k)));
+  const Z=w.reduce((a,b)=>a+b,0);let f1=0;SHIFTS.forEach((k,i)=>f1+=(w[i]/Z)*normpdf(c.y,c.theta+k,sd));
+  const f0=normpdf(c.y,c.theta,sd);return f0>0?f1/f0:Infinity;}
+function fmtBF(b){if(!isFinite(b))return '∞';if(b>=1e4||b<1e-3)return b.toExponential(1);return b.toFixed(1);}
+
+function buildNodes(){
+  $('#nodes').innerHTML=AGENTS.map((a,i)=>`
+    <div class="node" id="n${i}" style="--ac:${a.ac}">
+      <div class="disc">${a.icon}<div class="ring"></div><div class="chk">✓</div></div>
+      <div class="nm">${a.nm}</div><div class="st" id="st${i}">idle</div>
+    </div>`).join('');
+  $('#cards').innerHTML=AGENTS.map((a,i)=>`
+    <div class="card" id="c${i}" style="--ac:${a.ac}">
+      <div class="lab">Step ${i+1}</div><div class="h">${a.icon} ${a.nm}</div>
+      <div class="b" id="b${i}"></div>
+    </div>`).join('');
+}
+function tokenTo(i){const n=$('#n'+i).querySelector('.disc');const pipe=$('.pipe');
+  const x=n.getBoundingClientRect().left-pipe.getBoundingClientRect().left+n.offsetWidth/2;
+  const t=$('#token');t.style.left=x+'px';t.style.opacity=1;}
+function resetStage(){
+  gen++; AGENTS.forEach((a,i)=>{$('#n'+i).className='node';$('#st'+i).textContent='idle';
+    $('#c'+i).className='card';$('#b'+i).innerHTML='';});
+  $('#done').style.width='0';$('#token').style.opacity=0;
+}
+
+function animNum(el,to,dur,fmt){const t0=Date.now();const myGen=gen;
+  (function tick(){if(myGen!==gen||!el)return;const k=Math.min(1,(Date.now()-t0)/dur);const v=to*(1-Math.pow(1-k,3));
+    el.textContent=fmt(v);if(k<1)setTimeout(tick,33);})();}
+async function typewriter(el,txt,myGen){el.innerHTML='';const cur='<span class="cursor">&nbsp;</span>';
+  for(let i=0;i<txt.length;i++){if(myGen!==gen)return;el.innerHTML=txt.slice(0,i+1)+cur;await sleep(14/speed());}
+  if(myGen===gen)el.innerHTML=txt;}
+
+function activate(i){$('#n'+i).className='node active';$('#st'+i).textContent='analyzing';
+  $('#c'+i).className='card on';$('#done').style.width=(6+i*29.3)+'%';tokenTo(i);}
+function complete(i){$('#n'+i).className='node done';$('#st'+i).textContent='done';}
+
+async function runFind(f,myGen){
+  const b=$('#b0');const center=f._center, val=f.current_value||'';
+  b.innerHTML=`Detector flagged <span class="mono">${f.record_id}</span><br><br>`+
+    `<span class="lab">issue</span><br><b>${f.issue_type.replace(/_/g,' ')}</b><br><br>`+
+    `<span class="b" id="findv" style="opacity:0;transition:.5s">${f._findline}</span>`;
+  await sleep(420/speed()); if(myGen!==gen)return; const v=document.getElementById('findv'); if(v)v.style.opacity=1;
+  await sleep(900/speed());
+}
+async function runRank(f,myGen){
+  const b=$('#b1');const sevMap={high:9,med:6,low:3};const sev=sevMap[f.severity]||5;
+  b.innerHTML=`<div class="lab">confidence</div><div class="big" id="conf" style="color:${f._ac}">0%</div>`+
+    `<div class="gauge"><span id="cbar"></span></div>`+
+    `<div class="lab" style="margin-top:8px">Bayes factor f₁/f₀</div><div class="mono" id="bf" style="font-size:18px">—</div>`+
+    `<div class="lab" style="margin-top:6px">severity ${sev}/10</div>`;
+  await sleep(120/speed()); if(myGen!==gen)return;
+  $('#cbar').style.width=(f.confidence*100)+'%';
+  animNum($('#conf'),f.confidence*100,1100/speed(),v=>v.toFixed(0)+'%');
+  if(f._bf!=null) animNum($('#bf'),Math.min(f._bf,1e6),1100/speed(),v=> f._bf>1e4? (f._bf===Infinity?'∞':f._bf.toExponential(1)) : v.toFixed(1));
+  else $('#bf').textContent='n/a (structural)';
+  await sleep(1250/speed());
+}
+async function runAct(f,myGen){
+  const b=$('#b2');const lanes=[['fix','auto_fixed','#23c98a'],['flag','quick_check','#f1b24a'],['escalate','needs_review','#e0556e']];
+  const selLane=f.triage;
+  b.innerHTML=`<div class="lab">decision</div>`+
+    `<div class="dial">${lanes.map(([a,t,c])=>`<div class="dopt" id="d_${t}">${a}</div>`).join('')}</div>`+
+    `<div class="b" id="actr" style="margin-top:10px;opacity:0;transition:.5s"></div>`;
+  // sweep through options then settle
+  for(const [a,t,c] of lanes){if(myGen!==gen)return;document.querySelectorAll('.dopt').forEach(d=>{d.classList.remove('sel');d.style.background='#0e1830';d.style.color='#8aa0bd';});
+    const el=$('#d_'+t);el.classList.add('sel');el.style.background=c;el.style.color='#05101f';await sleep(260/speed());}
+  // settle on the real one
+  document.querySelectorAll('.dopt').forEach(d=>{d.classList.remove('sel');d.style.background='#0e1830';d.style.color='#8aa0bd';});
+  const win=lanes.find(l=>l[1]===selLane)||lanes[2];const wel=$('#d_'+win[1]);wel.classList.add('sel');wel.style.background=win[2];wel.style.color='#05101f';
+  const r=$('#actr');r.textContent=f.action_reason||'';r.style.opacity=1;
+  await sleep(1100/speed());
+}
+async function runExplain(f,myGen){
+  await typewriter($('#b3'), '“'+f._explain+'”', myGen);
+  await sleep(500/speed());
+}
+const RUN=[runFind,runRank,runAct,runExplain];
+
+async function play(i,auto){
+  const myGen=++gen; idx=i; autoplay=!!auto;
+  $('#sel').value=i;
+  resetStage_keepGen(myGen);
+  const f=SHOW[i];
+  $('#recId').textContent=f.record_id;
+  $('#recDesc').textContent=`· ${f.issue_type.replace(/_/g,' ')} · $${Math.round(f.impact_usd).toLocaleString()} at risk`;
+  await sleep(250/speed());
+  for(let s=0;s<4;s++){
+    if(myGen!==gen)return; activate(s); await RUN[s](f,myGen);
+    if(myGen!==gen)return; complete(s);
+    if(s<3){tokenTo(s+1);await sleep(560/speed());}
+  }
+  $('#done').style.width='100%';
+  if(autoplay&&myGen===gen){await sleep(2200/speed());play((i+1)%SHOW.length,true);}
+}
+function resetStage_keepGen(myGen){AGENTS.forEach((a,i)=>{$('#n'+i).className='node';$('#st'+i).textContent='idle';
+  $('#c'+i).className='card';$('#b'+i).innerHTML='';});$('#done').style.width='0';$('#token').style.opacity=0;}
+
+// step mode
+let stepState=-1;
+async function step(){
+  if(stepState<0){const myGen=++gen;idx=+$('#sel').value;resetStage_keepGen(myGen);const f=SHOW[idx];
+    $('#recId').textContent=f.record_id;$('#recDesc').textContent=`· ${f.issue_type.replace(/_/g,' ')}`;stepState=0;}
+  const myGen=gen;const f=SHOW[idx];const s=stepState;
+  if(s>3){stepState=-1;return;}
+  activate(s);await RUN[s](f,myGen);complete(s);if(s<3)tokenTo(s+1);
+  $('#done').style.width=(s===3?100:6+(s+1)*29.3)+'%';stepState++;
+}
+
+// curate a diverse, high-impact showcase: top finding per issue type
+function curate(findings){
+  const seen={},out=[];
+  findings.sort((a,b)=>b.impact_usd-a.impact_usd);
+  for(const f of findings){if(!seen[f.issue_type]){seen[f.issue_type]=1;out.push(f);}}
+  // order for narrative punch: weight first (the show-stopper), then dups, etc.
+  const order=['decimal_shift_weight','near_duplicate_variant','exact_duplicate','impossible_value','orphaned_customer','unit_format_drift'];
+  out.sort((a,b)=>order.indexOf(a.issue_type)-order.indexOf(b.issue_type));
+  return out;
+}
+function enrich(f){
+  f._ac='#5b9dff';
+  const center = f.part_number && WCASE[f.record_id] ? Math.pow(10,WCASE[f.record_id].theta) : null;
+  f._center=center;
+  // find line per type
+  const wc=WCASE[f.record_id];
+  if(f.issue_type==='decimal_shift_weight' && wc){
+    const ratio=wc.weight_kg/Math.pow(10,wc.theta);
+    f._findline=`weight <b class="hl">${wc.weight_kg}kg</b> vs part baseline <b>${Math.pow(10,wc.theta).toFixed(2)}kg</b> → <b class="hl">×${ratio.toFixed(1)}</b>`;
+    f._bf=bayesFactor(wc); f._wc=wc;
+    f._explain=`${f.record_id} reads ${wc.weight_kg}kg, but part ${f.part_number} averages ${Math.pow(10,wc.theta).toFixed(2)}kg — a ${wc.k>0?'+':''}${wc.k} decimal shift. The evidence is decisive (${fmtBF(bayesFactor(wc))}:1), so I corrected it to ${wc.suggested_kg}kg.`;
+  } else {
+    f._findline=(f.evidence||'').split('(Confidence')[0].trim();
+    f._bf=null;
+    f._explain=(f.evidence||'').split('(Confidence')[0].trim()+(f.suggested_fix?` Suggested fix: ${f.suggested_fix}.`:'');
+  }
+  return f;
+}
+
+Promise.all([
+  fetch('./audit_findings.json').then(r=>r.json()),
+  fetch('./explorer_data.json').then(r=>r.json()).catch(()=>({weight_cases:[]}))
+]).then(([af,ed])=>{
+  (ed.weight_cases||[]).forEach(c=>WCASE[c.record_id]=c);
+  SHOW=curate(af.findings.slice()).map(enrich);
+  buildNodes();
+  $('#sel').innerHTML=SHOW.map((f,i)=>`<option value="${i}">${f.record_id} · ${f.issue_type.replace(/_/g,' ')}</option>`).join('');
+  $('#sel').onchange=()=>play(+$('#sel').value,false);
+  $('#play').onclick=()=>{$('#play').textContent='▶ Playing…';play(idx,true);};
+  $('#replay').onclick=()=>play(idx,false);
+  $('#step').onclick=step;
+  // autoplay the show-stopper on load
+  play(0,true);
+});
+</script>
+</body>
+</html>
