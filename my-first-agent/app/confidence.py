@@ -75,6 +75,16 @@ STATISTICAL_ISSUES = {"decimal_shift_weight"}
 # Base rate of genuine errors in the benchmark (850 / 5000).
 ERROR_PRIOR = 0.17
 
+# Prior used INSIDE the weight model's H0/H1 comparison. This is subtle and
+# matters: error_probability() only ever scores records the *detector already
+# flagged*, so the relevant prior is P(real error | flagged), NOT the
+# unconditional 0.17. A flagged record has already passed a screen, so a neutral
+# 0.5 ("the data decide") is the honest, weakly-informative choice. Per MacKay
+# Ch 28 (p.347) this prior is a decision-theoretic input kept separate from the
+# evidence; we therefore also report the Bayes factor f1/f0 so the verdict can
+# be read independently of this prior.
+FLAGGED_ERROR_PRIOR = 0.5
+
 # Triage thresholds on final confidence.
 TRIAGE_AUTO = 0.90      # >= -> auto_fixed
 TRIAGE_REVIEW = 0.60    # >= -> quick_check, else needs_review
@@ -265,13 +275,17 @@ class WeightModel:
         return self.mu0, float(math.sqrt(self.sigma**2 + self.tau**2))
 
     def error_probability(
-        self, part_number: str, weight: float
+        self, part_number: str, weight: float, *, decay: float = 0.3, pi: float = FLAGGED_ERROR_PRIOR
     ) -> tuple[float, dict[str, Any]]:
         """Posterior probability that a weight is an error (Bayesian model comparison).
 
-        H0 (genuine): y ~ Normal(theta_part, pred_sd)
-        H1 (error):   y ~ broad Normal(mu0, wide) -- an implausible value
-        P(error) = pi*f1 / (pi*f1 + (1-pi)*f0)
+        H0 (genuine): y = log10(weight) ~ Normal(theta_part, pred_sd)
+        H1 (error):   y ~ mixture of decimal shifts, sum_k w_k Normal(theta+k, pred_sd)
+        P(error) = pi*f1 / (pi*f1 + (1-pi)*f0),  pi = P(error | flagged).
+
+        The Bayes factor BF = f1/f0 is the prior-free evidence (MacKay Ch 28); the
+        verdict P(error) only depends on `pi` in the genuinely ambiguous middle,
+        because for a true decimal shift BF is astronomically large.
 
         Args:
             part_number: The part the record belongs to.
@@ -287,18 +301,37 @@ class WeightModel:
         y = math.log10(weight)
 
         f0 = stats.norm.pdf(y, loc=theta, scale=max(pred_sd, 1e-3))
-        # Error model: broad over ~6 orders of magnitude around the global mean.
-        f1 = stats.norm.pdf(y, loc=self.mu0, scale=2.0)
 
-        pi = ERROR_PRIOR
+        # Error model: decimal shifts (truth ± powers of 10).
+        # H1 = mixture of shifts ±1, ±2, ±3 with geometric prior (decay=0.3).
+        # This models the actual error mechanism: a weight that's the true value
+        # displaced by an integer in log10-space.
+        shifts = [-3, -2, -1, 1, 2, 3]
+        weights = [decay ** abs(k) for k in shifts]
+        Z = sum(weights)
+        weights = [w / Z for w in weights]  # normalize to sum to 1
+        f1 = sum(
+            w * stats.norm.pdf(y, loc=theta + k, scale=max(pred_sd, 1e-3))
+            for w, k in zip(weights, shifts)
+        )
+
+        # Conditional prior `pi` (default FLAGGED_ERROR_PRIOR): these records were
+        # already flagged by the detector, so 0.5 ("the data decide"), not the
+        # unconditional 0.17 base rate.
         denom = pi * f1 + (1 - pi) * f0
         p_error = float(pi * f1 / denom) if denom > 0 else 0.99
+
+        # Prior-free evidence (MacKay Ch 28): the Bayes factor for H1 over H0.
+        # f0 can underflow for large shifts; treat that as decisive evidence.
+        with np.errstate(over="ignore", divide="ignore"):
+            bayes_factor = float(f1 / f0) if f0 > 0 else float("inf")
 
         sigma_off = float((y - theta) / max(pred_sd, 1e-3))
         info = {
             "log10_weight": round(y, 3),
             "part_center_kg": round(10**theta, 4),
             "sigma_off": round(sigma_off, 2),
+            "bayes_factor": round(bayes_factor, 2) if np.isfinite(bayes_factor) else None,
             "fitted_with": self.fitted_with,
         }
         return p_error, info
@@ -339,11 +372,65 @@ class WeightModel:
 
 
 # --------------------------------------------------------------------------- #
+# Near-duplicate confidence via the Fellegi-Sunter record-linkage model
+# --------------------------------------------------------------------------- #
+# Issue types whose confidence is the F-S posterior P(match) rather than a
+# hand-set structural prior.
+DUP_ISSUES = {"near_duplicate_variant", "near_duplicate"}
+
+
+def _load_linker_cls():
+    """Import FellegiSunterLinker, tolerating the ADK-free standalone case."""
+    try:  # normal path (production: app/__init__ -> agent -> google.adk is present)
+        from app.record_linkage import FellegiSunterLinker
+
+        return FellegiSunterLinker
+    except Exception:  # standalone (no ADK): load the module file directly
+        import importlib.util
+        import pathlib
+        import sys
+
+        p = pathlib.Path(__file__).resolve().parent / "record_linkage.py"
+        spec = importlib.util.spec_from_file_location("record_linkage_mod", p)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = mod  # let @dataclass resolve the module (py3.12+)
+        spec.loader.exec_module(mod)
+        return mod.FellegiSunterLinker
+
+
+def duplicate_posteriors(df: pd.DataFrame) -> dict[str, float]:
+    """Calibrated P(this record has a true duplicate) per record_id.
+
+    Fits the Fellegi-Sunter mixture (BDA3 sec 1.7) on all within-part candidate
+    pairs and assigns each record the max P(match) over the pairs it appears in
+    -- the probability its best-matching partner is a genuine duplicate. This
+    replaces the hand-set near_duplicate constants with a posterior estimated
+    from the data with no labels.
+    """
+    linker = _load_linker_cls()()
+    Gamma, ids = linker.candidate_pairs(df)
+    if len(ids) == 0:
+        return {}
+    linker.fit(Gamma)
+    proba = linker.predict_proba(Gamma)
+    best: dict[str, float] = {}
+    for (a, b), p in zip(ids, proba):
+        p = float(p)
+        if p > best.get(a, 0.0):
+            best[a] = p
+        if p > best.get(b, 0.0):
+            best[b] = p
+    return best
+
+
+# --------------------------------------------------------------------------- #
 # Scoring a finding / batch
 # --------------------------------------------------------------------------- #
 
 def score_finding(
-    finding: dict[str, Any], model: WeightModel | None = None
+    finding: dict[str, Any],
+    model: WeightModel | None = None,
+    dup_scores: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     """Add calibrated `confidence` + `triage` (+ better fix) to one finding.
 
@@ -357,6 +444,8 @@ def score_finding(
     """
     out = dict(finding)
     issue = out.get("issue_type", "")
+    canon = _ALIASES.get(issue, issue)
+    rec_id = str(out.get("record_id") or (out.get("raw_signals") or {}).get("record_id") or "")
 
     if issue in STATISTICAL_ISSUES and model is not None:
         part = out.get("part_number") or (out.get("raw_signals") or {}).get("part_number")
@@ -375,6 +464,16 @@ def score_finding(
             )
         out.setdefault("raw_signals", {})
         out["raw_signals"] = {**(out.get("raw_signals") or {}), **info}
+    elif canon in DUP_ISSUES and dup_scores is not None and rec_id in dup_scores:
+        # Calibrated Fellegi-Sunter posterior instead of a structural constant.
+        p = float(dup_scores[rec_id])
+        out["confidence"] = round(p, 4)
+        out.setdefault("raw_signals", {})
+        out["raw_signals"] = {
+            **(out.get("raw_signals") or {}),
+            "fs_p_match": round(p, 4),
+            "confidence_source": "fellegi_sunter",
+        }
     else:
         out["confidence"] = round(tier1_confidence(out), 4)
 
@@ -404,7 +503,19 @@ def score_findings(
         f.get("issue_type") in STATISTICAL_ISSUES for f in findings
     ):
         model = WeightModel().fit(df, use_pymc=use_pymc)
-    return [score_finding(f, model) for f in findings]
+
+    # Fellegi-Sunter posteriors for near-duplicate findings (BDA3 sec 1.7).
+    dup_scores: dict[str, float] | None = None
+    if df is not None and any(
+        _ALIASES.get(f.get("issue_type", ""), f.get("issue_type", "")) in DUP_ISSUES
+        for f in findings
+    ):
+        try:
+            dup_scores = duplicate_posteriors(df)
+        except Exception:
+            dup_scores = None  # fall back to tier-1 constants if the fit fails
+
+    return [score_finding(f, model, dup_scores) for f in findings]
 
 
 def assess_confidence(record_json: str) -> str:

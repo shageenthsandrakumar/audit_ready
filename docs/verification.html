@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AuditReady — Math Verification Against the Sources</title>
+<script>window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$'],['\\[','\\]']]}};</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+<style>
+  :root{--bg:#0b1220;--panel:#121c2e;--panel2:#0f1828;--line:#22304a;--text:#e6edf6;
+        --muted:#8aa0bd;--accent:#5b9dff;--green:#1fb87a;--amber:#e0a13a;--red:#e0556e}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.7}
+  .wrap{max-width:880px;margin:0 auto;padding:38px 30px 100px}
+  h1{font-size:27px;margin:0 0 6px} .sub{color:var(--muted);margin-bottom:10px;font-size:15px}
+  nav a{margin-right:14px;font-size:13px;color:var(--accent)}
+  h2{font-size:20px;margin:38px 0 12px;border-bottom:1px solid var(--line);padding-bottom:7px;color:#cfe0f5}
+  h3{font-size:16px;margin:22px 0 6px;color:#cfe0f5}
+  p,li{font-size:15px} code{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:1px 6px;font-size:13px}
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin:16px 0}
+  .read{border-left:4px solid var(--accent)} .win{border-left:4px solid var(--green)} .find{border-left:4px solid var(--amber)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;margin:14px 0}
+  th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left}
+  th{color:var(--muted);font-weight:600}
+  .ok{color:var(--green);font-weight:700} .warn{color:var(--amber);font-weight:700}
+  .muted{color:var(--muted);font-size:13px}
+  blockquote{margin:10px 0;padding:8px 16px;border-left:3px solid var(--muted);color:#cfe0f5;font-style:italic}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🔬 Math Verification — checked against the actual sources</h1>
+  <div class="sub">Every modeling claim cross-checked against BDA3 and MacKay, page by page. Verified 2026-06-15.</div>
+  <nav>
+    <a href="./index.html">← dashboard</a>
+    <a href="./methodology.html">reasoning log</a>
+    <a href="./calibration.html">calibration</a>
+    <a href="./model.html">weight model</a>
+  </nav>
+
+  <div class="box read">
+    <b>Mandate.</b> Before building further, double-check the math and logic of the confidence model against the books — BDA3 (Gelman et al.) and MacKay (<i>Information Theory, Inference, and Learning Algorithms</i>). Text was extracted directly from the supplied PDFs and quotations verified. <span class="muted">(The third supplied file, <code>9780429113079_previewpdf.pdf</code>, is the CRC preview of BDA3 — not a separate text.)</span>
+  </div>
+
+  <h2>1. The decimal-shift alternative $H_1$ — <span class="ok">correct</span></h2>
+  <p>The detector flags weights that look like decimal-place errors. The model compares two hypotheses for an observed weight, working in <b>$\log_{10}$ space</b> ($y=\log_{10}\text{weight}$, per-part center $\theta$):</p>
+  $$H_0:\ y\sim\mathcal N(\theta,\ \sigma_p), \qquad H_1:\ y\sim\sum_{k\in\{\pm1,\pm2,\pm3\}} w_k\,\mathcal N(\theta+k,\ \sigma_p),\quad w_k\propto \rho^{|k|}.$$
+  <p>The subtlety I most wanted to check: a decimal shift is <i>multiplicative</i> ($\times 10^k$), yet the code adds <code>theta + k</code>. That is only valid in log space — and it is: a $\times 10^k$ error becomes a <b>$+k$ translation</b> of $y$. So each bump $\mathcal N(\theta+k,\sigma_p)$ sits exactly where a $k$-digit shift would land. <span class="ok">Coherent.</span></p>
+  <p class="muted">Minor note carried into the code: <code>error_probability</code> writes $\mathcal N(y;\theta+k)$ while <code>best_decimal_correction</code> writes $\mathcal N(y+k;\theta)$ — opposite sign conventions. It is safe <i>only</i> because the shift set is symmetric with $|k|$-based weights, so $f_1$ is sign-invariant. Flagged in-code in case the prior is ever made asymmetric.</p>
+
+  <h3>Why this fixes the old, broken $H_1$ — MacKay Ch 28</h3>
+  <p>The previous alternative was a vague $\mathcal N(\mu_0, 2.0)$. MacKay, <b>“Model Comparison and Occam’s Razor,” pp. 343–347</b>, explains exactly why that was self-defeating:</p>
+  <blockquote>“Simple models tend to make precise predictions. Complex models, by their nature, are capable of making a greater variety of predictions … [so a complex model] must spread its predictive probability $P(D\mid H_2)$ more thinly over the data space.” (p. 345)</blockquote>
+  <p>A diffuse $H_1$ of width $\sigma_{\text{alt}}$ assigns any plausible $y$ a density $\approx \tfrac{1}{\sigma_{\text{alt}}\sqrt{2\pi}}$ — so the verdict scaled with an <i>arbitrary</i> knob (the Occam factor, $\sim 1/\sigma_{\text{alt}}$). The structured $H_1$ replaces that with a mechanism (decimal shifts), and the verdict is now driven by the likelihood ratio at the data. <b>Verified empirically below.</b></p>
+
+  <h2>2. Sensitivity — <span class="ok">the verdict is not a tuned knob</span></h2>
+  <p>A reviewer’s first objection: “you hand-picked $\rho=0.3$ and the prior $\pi$.” <code>sensitivity.py</code> sweeps both across a grid of displacements (value at $\theta+s$ in log space, i.e. a $\times 10^{s}$ error). Real output, part <code>BOLT-100</code> ($\sigma_p=0.053$):</p>
+
+  <h3>(a) Shift-prior $\rho$ — inert where it matters</h3>
+  <table>
+    <thead><tr><th>shift $s$</th><th>factor</th><th>$\rho{=}0.1$</th><th>0.2</th><th>0.3</th><th>0.5</th><th>0.7</th><th>spread</th></tr></thead>
+    <tbody>
+    <tr><td>0.0</td><td>×1 (clean)</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td><td class="ok">0.000</td></tr>
+    <tr><td>0.5</td><td>×3.2 (overlap)</td><td>0.311</td><td>0.287</td><td>0.265</td><td>0.222</td><td>0.186</td><td class="warn">0.125</td></tr>
+    <tr><td>1.0</td><td>×10 (error)</td><td>1.000</td><td>1.000</td><td>1.000</td><td>1.000</td><td>1.000</td><td class="ok">0.000</td></tr>
+    <tr><td>2.0</td><td>×100</td><td>1.000</td><td>1.000</td><td>1.000</td><td>1.000</td><td>1.000</td><td class="ok">0.000</td></tr>
+    <tr><td>3.0</td><td>×1000</td><td>1.000</td><td>1.000</td><td>1.000</td><td>1.000</td><td>1.000</td><td class="ok">0.000</td></tr>
+    </tbody>
+  </table>
+  <p>The knob is <b>completely inert at clean values and at real shifts</b>; it only moves the answer in the genuine $\times 3$ overlap — where deferring is correct.</p>
+
+  <h3>(b) Prior $\pi$ — bites only when the evidence is weak (MacKay’s point exactly)</h3>
+  <table>
+    <thead><tr><th>shift $s$</th><th>factor</th><th>$\pi{=}0.17$</th><th>0.3</th><th>0.5</th><th>0.7</th><th>Bayes factor</th><th>spread</th></tr></thead>
+    <tbody>
+    <tr><td>0.0</td><td>×1</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0</td><td class="ok">0.000</td></tr>
+    <tr><td>0.5</td><td>×3.2</td><td>0.069</td><td>0.134</td><td>0.265</td><td>0.456</td><td>0.36</td><td class="warn">0.388</td></tr>
+    <tr><td>1.0</td><td>×10</td><td>1.000</td><td>1.000</td><td>1.000</td><td>1.000</td><td>$5.6\times10^{77}$</td><td class="ok">0.000</td></tr>
+    <tr><td>2.0</td><td>×100</td><td>1.000</td><td>1.000</td><td>1.000</td><td>1.000</td><td>$\infty$</td><td class="ok">0.000</td></tr>
+    </tbody>
+  </table>
+  <p>When the Bayes factor $f_1/f_0$ is astronomical, $\pi$ is irrelevant; when it is $O(1)$ (the $\times3$ overlap), the prior decides. That is the textbook relationship between evidence and prior, demonstrated on real data — not asserted.</p>
+  <div class="box win"><b>Honest reframe shipped.</b> The internal prior was the <i>unconditional</i> base rate (0.17). But this comparison only ever scores records the detector <i>already flagged</i>, so the right prior is $P(\text{error}\mid\text{flagged})$. Now set to a neutral $0.5$ (“the data decide”), and the prior-free <b>Bayes factor is reported alongside</b> every verdict — so a reader can judge the evidence independently of the prior (MacKay p. 347: inference and decision theory are separate).</div>
+
+  <h2>3. Record linkage — <span class="ok">this is the Census Bureau method, verbatim</span></h2>
+  <p><b>BDA3 §1.7 “Calibration for record linkage,” pp. 16–18</b> describes the exact method. The combined score distribution is a two-component mixture (their Eq. 1.7):</p>
+  $$p(y)=\Pr(\text{match})\,p(y\mid\text{match})+\Pr(\text{non-match})\,p(y\mid\text{non-match}).$$
+  <p>Fitted from data with <i>unknown</i> match status; a curve of false-match-rate vs. threshold (their Fig. 1.4) lets a decision-maker pick a cutoff. BDA3 even names the failure mode the project first hit:</p>
+  <blockquote>“Simple methods … lead to extremely inaccurate, typically grossly optimistic, estimates of false-match rates … Records with nominal false-match probabilities of 1% had an actual false-match rate of 5%.” (p. 16)</blockquote>
+  <p>The Fellegi–Sunter EM in <code>record_linkage.py</code> is the standard latent-class mixture-of-Bernoullis. Verified M-step:</p>
+  $$\hat p=\tfrac1n\textstyle\sum_i r_i,\quad \hat m_k=\frac{\sum_i r_i\gamma_{ik}}{\sum_i r_i},\quad \hat u_k=\frac{\sum_i (1-r_i)\gamma_{ik}}{\sum_i (1-r_i)},\quad r_i=P(M\mid\gamma_i).$$
+  <p class="muted">Cross-check on the “$\sum_i P_i \approx$ matches = calibration” claim: it is <b>not</b> a calibration test. The M-step <i>sets</i> $\hat p=\tfrac1n\sum r_i$, so $\sum_i r_i = n\hat p$ holds by construction at every iteration. Real calibration is the injection harness (ECE = 0.0019) on the <a href="./calibration.html">calibration page</a>.</p>
+  <div class="box win"><b>Wired into the live pipeline.</b> Near-duplicate confidence was a structural constant (0.82 / 0.58 / 0.52). It is now the Fellegi–Sunter posterior $P(\text{match})$. On the real data: 4,854 records have a candidate partner, $P(\text{match})$ is fully <b>binary</b> (260 at $P\ge0.9$, <b>zero</b> in $(0.05,0.95)$) — confirming the benchmark’s duplicates are deterministic and separable, exactly as the model says.</div>
+
+  <h2>4. Decision theory for triage — <span class="ok">correctly separated from inference</span></h2>
+  <p>MacKay is explicit (p. 347) that this is a different job:</p>
+  <blockquote>“Both levels of inference are distinct from decision theory. … Decision theory typically chooses between alternative actions on the basis of these probabilities so as to minimize the expectation of a loss function.”</blockquote>
+  <p>So the architecture is right: Occam/evidence picks $H_0$ vs $H_1$ (a probability); the triage cutoffs (auto-fix at $P\ge0.99$ for a $\le1\%$ false-match budget) are an <i>expected-loss decision</i> read off the operating curve (MacKay Ch 36 / BDA3 Fig 1.4). Two layers, kept separate.</p>
+
+  <h2>Scorecard</h2>
+  <table>
+    <thead><tr><th>Claim</th><th>Source</th><th>Status</th></tr></thead>
+    <tbody>
+    <tr><td>Decimal-shift $H_1$ in log space</td><td>—</td><td class="ok">correct</td></tr>
+    <tr><td>Old vague $H_1$ self-defeating (Occam)</td><td>MacKay pp. 343–347</td><td class="ok">confirmed + fixed</td></tr>
+    <tr><td>Verdict robust to $\rho$ and $\pi$</td><td>sensitivity.py</td><td class="ok">proven empirically</td></tr>
+    <tr><td>Record linkage = mixture calibration</td><td>BDA3 §1.7 pp. 16–18</td><td class="ok">exact match</td></tr>
+    <tr><td>Fellegi–Sunter EM M-step</td><td>BDA3 Ch 22</td><td class="ok">textbook</td></tr>
+    <tr><td>“$\sum P_i$ = calibration”</td><td>—</td><td class="warn">false; it’s a fixed-point identity</td></tr>
+    <tr><td>Prior should be conditional on “flagged”</td><td>MacKay p. 347</td><td class="ok">reframed; BF now reported</td></tr>
+    <tr><td>Triage = decision theory, not inference</td><td>MacKay p. 347 / Ch 36</td><td class="ok">correctly separated</td></tr>
+    </tbody>
+  </table>
+  <p class="muted">Sources: BDA3 (Gelman, Carlin, Stern, Dunson, Vehtari, Rubin, 3rd ed.); MacKay, <i>Information Theory, Inference, and Learning Algorithms</i> (CUP, 2003). Code: <a href="https://github.com/shageenthsandrakumar/audit_ready/tree/record-linkage-mixture">record-linkage-mixture branch</a> — <code>confidence.py</code>, <code>record_linkage.py</code>, <code>sensitivity.py</code>.</p>
+</div>
+</body>
+</html>

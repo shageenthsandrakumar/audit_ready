@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AuditReady — Confidence Modeling: A Reasoning Log</title>
+<script>window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$'],['\\[','\\]']]}};</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+<style>
+  :root{--bg:#0b1220;--panel:#121c2e;--panel2:#0f1828;--line:#22304a;--text:#e6edf6;
+        --muted:#8aa0bd;--accent:#5b9dff;--green:#1fb87a;--amber:#e0a13a;--red:#e0556e}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.7}
+  .wrap{max-width:880px;margin:0 auto;padding:38px 30px 100px}
+  h1{font-size:27px;margin:0 0 6px} .sub{color:var(--muted);margin-bottom:10px;font-size:15px}
+  nav a{margin-right:14px;font-size:13px;color:var(--accent)}
+  h2{font-size:20px;margin:38px 0 12px;border-bottom:1px solid var(--line);padding-bottom:7px;color:#cfe0f5}
+  h3{font-size:16px;margin:22px 0 6px;color:#cfe0f5}
+  p,li{font-size:15px} code{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:1px 6px;font-size:13px}
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin:16px 0}
+  .read{border-left:4px solid var(--accent)} .find{border-left:4px solid var(--amber)} .win{border-left:4px solid var(--green)}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
+  th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}
+  th{background:var(--panel);color:var(--muted);font-weight:600}
+  a{color:var(--accent)} mjx-container{overflow-x:auto;overflow-y:hidden}
+  .tag{display:inline-block;background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:1px 9px;font-size:11px;color:var(--muted);margin-right:5px}
+  .muted{color:var(--muted);font-size:13px}
+  ol.steps>li{margin-bottom:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Confidence Modeling: A Reasoning Log</h1>
+  <div class="sub">How AuditReady's confidence layer went from a lookup table to a validated record-linkage model — every step, and the reading that justifies it.</div>
+  <nav>
+    <a href="./index.html">dashboard</a><a href="./calibration.html">calibration</a>
+    <a href="./model.html">weight model</a><a href="./decimal_shift_explained.html">decimal-shift</a>
+  </nav>
+
+  <div class="box win">
+    <b>TL;DR.</b> The inherited "Bayesian confidence" was six hand-set constants — a lookup table keyed by detector type. I rebuilt the near-duplicate channel as the U.S. Census Bureau's <b>record-linkage</b> model (Fellegi–Sunter / Belin–Rubin / BDA3 §1.7), fit unsupervised by EM. It recovered the true duplicates and the per-field evidence weights with no labels. Going deeper revealed the benchmark's errors are <b>deterministic and separable</b>, so honest confidence is near-binary — the "spread" was fiction. To prove the method is nonetheless calibrated, I built a validation harness (simulation-based calibration, BDA3 §6.3): inject fuzzy duplicates at a known rate → <b>ECE = 0.0019</b>, prevalence recovered, with an honest mild underconfidence in the ambiguous zone (the conditional-independence signature). A posterior predictive check on the real data passes 5/6 bins.
+  </div>
+
+  <h2>1. The starting point, and the diagnostic that broke it</h2>
+  <p>The pipeline emits 742 findings across six detectors, each carrying a "calibrated Bayesian confidence." I tabulated the <i>distinct</i> confidence values per channel:</p>
+  <table>
+    <thead><tr><th>channel</th><th>n</th><th>confidence value(s)</th></tr></thead>
+    <tbody>
+      <tr><td>decimal_shift_weight</td><td>33</td><td>all 1.000</td></tr>
+      <tr><td>exact_duplicate</td><td>260</td><td>all 0.978</td></tr>
+      <tr><td>impossible_value</td><td>19</td><td>all 0.976</td></tr>
+      <tr><td>near_duplicate_variant</td><td>260</td><td>all 0.685</td></tr>
+      <tr><td>orphaned_customer</td><td>80</td><td>all 0.550</td></tr>
+      <tr><td>unit_format_drift</td><td>90</td><td>all 0.740</td></tr>
+    </tbody>
+  </table>
+  <p><b>Every channel emits a single constant.</b> There is zero within-channel variation: "confidence" was a lookup table keyed by detector type, dressed in Bayesian language. The whole hierarchical-weight apparatus collapsed to <code>1.000</code> for all weight findings. That is the problem this log fixes.</p>
+
+  <h2>2. The reading, and what each source decided</h2>
+  <div class="box read">
+    <table>
+      <thead><tr><th>Source</th><th>Pages</th><th>Decision it drove</th></tr></thead>
+      <tbody>
+        <tr><td><b>BDA3 §1.7</b> Calibration for record linkage</td><td>16–18</td><td>Near-duplicate = record linkage. Calibrate match probability as a function of a similarity score, estimated from <i>unlabeled</i> data.</td></tr>
+        <tr><td><b>Fellegi–Sunter (1969)</b> (the model under §1.7)</td><td>—</td><td>Per-field agreement weights $m_k,u_k$; conditional-independence likelihood ratio.</td></tr>
+        <tr><td><b>BDA3 Ch 22</b> Finite mixture models</td><td>519–535</td><td>Latent indicator $z$, EM, Dirichlet prior, identifiability / label-switching, semi-supervised slot-in of known labels.</td></tr>
+        <tr><td><b>BDA3 §6.3</b> Posterior predictive checking</td><td>143–149</td><td>Validate without labels: replicated data must look like observed. → the injection harness + the real-data PPC.</td></tr>
+        <tr><td><b>BDA3 §17</b> Models for robust inference</td><td>435–439</td><td>Frame seeded errors as <i>contamination</i> of a clean process.</td></tr>
+        <tr><td><b>MacKay Ch 20, 22</b> Clustering, ML &amp; EM</td><td>284–310</td><td>EM "responsibilities" $\gamma_i = P(\text{component}\mid x_i)$ — these <i>are</i> our confidence.</td></tr>
+        <tr><td><b>MacKay Ch 28</b> Model Comparison &amp; Occam's Razor</td><td>343–356</td><td>The <b>Occam factor</b>: why the old broad-Gaussian error model with a hand-tuned width was self-defeating.</td></tr>
+        <tr><td><b>MacKay Ch 36</b> Decision Theory</td><td>451–456</td><td>Triage thresholds as expected-loss / target-error decisions, not hand-set cutoffs.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>3. The model: Fellegi–Sunter record linkage</h2>
+  <p>For each candidate record pair (blocked on <code>part_number</code>) we form an <b>agreement pattern</b> $\gamma=(\gamma_1,\dots,\gamma_K)$, with $\gamma_k=1$ if the two records match on field $k$. Each pair is a true match $(M)$ or non-match $(U)$ — a latent $z$. Under conditional independence of fields given $z$:</p>
+  $$P(\gamma_k{=}1\mid M)=m_k,\qquad P(\gamma_k{=}1\mid U)=u_k.$$
+  $$\mathcal L_M(\gamma)=\prod_k m_k^{\gamma_k}(1-m_k)^{1-\gamma_k},\qquad \mathcal L_U(\gamma)=\prod_k u_k^{\gamma_k}(1-u_k)^{1-\gamma_k}.$$
+  <p>With prevalence $p=P(M)$, the collection of pairs is a two-component mixture; the posterior responsibility <i>is</i> the calibrated confidence:</p>
+  $$\boxed{\;P(M\mid\gamma)=\frac{p\,\mathcal L_M(\gamma)}{p\,\mathcal L_M(\gamma)+(1-p)\,\mathcal L_U(\gamma)}\;}$$
+  <p>We fit $(p,m,u)$ by <b>EM</b> on the unlabeled pairs (E-step = the responsibility above; M-step = $\hat p=\frac1n\sum_i r_i$, $\hat m_k=\frac{\sum_i r_i\gamma_{ik}}{\sum_i r_i}$, $\hat u_k=\frac{\sum_i(1-r_i)\gamma_{ik}}{\sum_i(1-r_i)}$). The field's discriminating power is the log-weight $\log_2(m_k/u_k)$ — <i>bits of evidence</i>.</p>
+
+  <h2>4. What the model found on the real data</h2>
+  <p>19,013 within-part candidate pairs. EM converged in 5 iterations and, <b>with no labels</b>, recovered exactly the 130 true-duplicate pairs (prevalence $\hat p=0.0068$, expected count $0.0068\times19013=130$). The evidence weights are sharp and interpretable:</p>
+  <table>
+    <thead><tr><th>field</th><th>bits log₂(m/u)</th><th>field</th><th>bits</th></tr></thead>
+    <tbody>
+      <tr><td>quantity</td><td>13.2</td><td>weight_kg</td><td>6.4</td></tr>
+      <tr><td>production_date</td><td>9.6</td><td>status</td><td>1.5</td></tr>
+      <tr><td>ship_date / last_modified</td><td>9.5</td><td>plant_id</td><td>0.85</td></tr>
+      <tr><td>customer_id</td><td>8.0</td><td><b>unit</b></td><td><b>0.0 (useless — always "mm")</b></td></tr>
+    </tbody>
+  </table>
+  <div class="box find">
+    <b>But the responsibilities came out binary — 0 or 1, no overlap.</b> Duplicates are exact copies; everything else disagrees on a high-information field. So the honest confidence is ≈1.0 (the hand-set 0.685 was simply <i>miscalibrated</i>, too low), and there is nothing intermediate to calibrate. The same check on <code>orphaned_customer</code>: all 80 orphans are a systematic foreign format (<code>CX-A228</code>, never <code>CU-####</code>), edit-distance 2–3 from any real ID — not typos, a cleanly separate population. Also near-deterministic.
+  </div>
+
+  <h2>5. The honest finding (which was predicted)</h2>
+  <p>This benchmark's errors are <b>deterministic and separable</b>: exact ×10 decimal shifts, exact-copy duplicates, a distinct ID format. Calibrated confidence is designed for <i>graded</i> ambiguity, and this synthetic data has almost none. The "honest spread 0.55–1.00" we had been proud of was near-binary truth dressed up by hand-set constants. The rigorous methods did not <i>produce</i> a spread — they <b>dissolved</b> a fake one. (This was flagged early in the project as a hypothesis — "the kaggle data itself is synthetic, maybe that's it" — and the analysis confirms it.)</p>
+
+  <h2>6. Proving calibration when the data can't (BDA3 §6.3)</h2>
+  <p>If the benchmark can't exercise calibration, manufacture ground truth. The harness injects fuzzy near-duplicates at a <b>known</b> rate — clone a record, corrupt 1–6 of 9 fields — so the agreement pattern spans clean → heavily-corrupted. Fit unsupervised, then ask: among pairs scored $P(M){=}q$, are a fraction $\approx q$ truly injected duplicates? Results (800 injected):</p>
+  <table>
+    <thead><tr><th>bin</th><th>n</th><th>predicted</th><th>empirical</th></tr></thead>
+    <tbody>
+      <tr><td>[0.0, 0.1)</td><td>24,308</td><td>0.000</td><td>0.000</td></tr>
+      <tr><td>[0.1, 0.2)</td><td>86</td><td>0.109</td><td>0.209</td></tr>
+      <tr><td>[0.2, 0.3)</td><td>57</td><td>0.255</td><td>0.404</td></tr>
+      <tr><td>[0.9, 1.0)</td><td>787</td><td>0.997</td><td>0.964</td></tr>
+    </tbody>
+  </table>
+  <p><b>ECE = 0.0019</b>; prevalence recovered (813 vs 800 true); recall 759/800 at threshold 0.5. The model is well-calibrated at the extremes and mildly <b>underconfident</b> in the ambiguous middle (empirical &gt; predicted). That is the known signature of the conditional-independence assumption — surfaced honestly by the check, not hidden. See the live <a href="./calibration.html">reliability diagram</a>.</p>
+
+  <h3>Posterior predictive check on the real data</h3>
+  <p>Draw replicated agreement-score datasets from the fitted model and compare to observed. <b>5 of 6 score bins fall inside the 95% replicated band</b> — the model reproduces the real structure. The single miss (score 5: observed 3 vs band [0, 2]) is a small, honest signal of mild field-dependence (some coincidental pairs agree on correlated fields slightly more than independence predicts).</p>
+
+  <h2>7. Decision-theoretic triage (BDA3 §1.7 Fig 1.4 / MacKay Ch 36)</h2>
+  <p>Instead of hand-set 0.60 / 0.90 cutoffs, the operating curve gives false-match rate vs threshold. There is an irreducible ~3.6% false-match floor (coincidental pairs that genuinely agree on most fields), so a <b>1%-error auto-fix policy honestly requires $P\ge 0.99$</b>. The triage lanes become a decision, derived from a stated error tolerance, not a guess.</p>
+
+  <h2>8. The weight model, revisited honestly (MacKay Ch 28)</h2>
+  <p>The original decimal-shift error model compared the observed log-weight against a broad Gaussian alternative $\mathcal N(\mu_0,\sigma_{\text{alt}}{=}2.0)$. MacKay's <b>Occam factor</b> explains why that was unsound: a vague alternative's marginal likelihood scales like $1/\sigma_{\text{alt}}$, so the hand-tuned width — not the data — controlled the verdict for borderline cases. The principled replacement models the actual mechanism (an error is the truth shifted by a power of ten), but because shifts are exact ×10ᵏ the two hypotheses are separated by a full decade: every one of the 33 weight findings scores $P=1$. <b>Honest conclusion:</b> the weight channel is near-binary by separation; the mixture is retained for choosing the <i>correction</i> $k$, not for manufacturing a confidence gradient.</p>
+
+  <h2>9. Honest limitations</h2>
+  <ul>
+    <li><b>Conditional independence</b> (Fellegi–Sunter) is mildly violated — the PPC score-5 miss and the ambiguous-zone underconfidence both point to correlated field agreements (dates move together). A log-linear interaction term or a latent-class model with dependence would tighten it.</li>
+    <li><b>First-moment "calibration" is an identity, not a test.</b> Under EM, $\sum_i r_i = n\hat p$ holds at the optimum, so matching an expected count proves nothing on its own. Real evidence is the reliability diagram and the PPC — which is why those are the artifacts, not a sum.</li>
+    <li><b>The benchmark is separable</b>, so the calibration claim rests on the <i>injected</i> ambiguity. On genuinely noisy production data the graded zone would be larger and more load-bearing.</li>
+  </ul>
+
+  <h2>10. Open questions (for the modeling lead)</h2>
+  <ol class="steps">
+    <li>Is conditional independence worth relaxing for these fields, or is the ~3.6% floor acceptable for the use case?</li>
+    <li>Should orphaned-customer confidence stay near-deterministic (foreign-format ⇒ broken FK) or model a genuine "new customer" hypothesis with a temporal prior?</li>
+    <li>Is the $P\ge0.99$ auto-fix threshold the right risk posture for a regulated audit, or should the human-review lane be wider?</li>
+  </ol>
+
+  <h2>References (exact pages)</h2>
+  <p class="muted">
+    Gelman, Carlin, Stern, Dunson, Vehtari, Rubin — <b>Bayesian Data Analysis, 3rd ed.</b> §1.7 (pp. 16–18), Ch 5 (101–134), §6.3 (143–149), §7.4 (182), §17.1–17.2 (435–439), Ch 22 (519–535). ·
+    MacKay — <b>Information Theory, Inference, and Learning Algorithms</b>, Ch 20 (284–292), Ch 22 (300–310), Ch 28 (343–356), Ch 36 (451–456). ·
+    Fellegi &amp; Sunter (1969), <i>A theory for record linkage</i>, JASA. ·
+    Belin &amp; Rubin (1995), <i>A method for calibrating false-match rates in record linkage</i>, JASA.
+  </p>
+  <p class="muted">Code: <a href="https://github.com/shageenthsandrakumar/audit_ready/blob/record-linkage-mixture/my-first-agent/app/record_linkage.py">record_linkage.py</a> · <a href="https://github.com/shageenthsandrakumar/audit_ready/blob/record-linkage-mixture/my-first-agent/app/calibration_harness.py">calibration_harness.py</a></p>
+</div>
+</body>
+</html>

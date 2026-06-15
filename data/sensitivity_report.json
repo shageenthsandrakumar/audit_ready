@@ -1,0 +1,143 @@
+{
+  "part": "BOLT-100",
+  "part_center_kg": 23.7675,
+  "pred_sd_log10": 0.0527,
+  "decays": [
+    0.1,
+    0.2,
+    0.3,
+    0.5,
+    0.7
+  ],
+  "pis": [
+    0.17,
+    0.3,
+    0.5,
+    0.7
+  ],
+  "decay_sweep": [
+    {
+      "shift_log10": 0.0,
+      "x_factor": 1.0,
+      "decay=0.1": 0.0,
+      "decay=0.2": 0.0,
+      "decay=0.3": 0.0,
+      "decay=0.5": 0.0,
+      "decay=0.7": 0.0,
+      "decay_spread": 0.0
+    },
+    {
+      "shift_log10": 0.3,
+      "x_factor": 2.0,
+      "decay=0.1": 0.0,
+      "decay=0.2": 0.0,
+      "decay=0.3": 0.0,
+      "decay=0.5": 0.0,
+      "decay=0.7": 0.0,
+      "decay_spread": 0.0
+    },
+    {
+      "shift_log10": 0.5,
+      "x_factor": 3.16,
+      "decay=0.1": 0.3106,
+      "decay=0.2": 0.2874,
+      "decay=0.3": 0.2646,
+      "decay=0.5": 0.2222,
+      "decay=0.7": 0.1859,
+      "decay_spread": 0.1247
+    },
+    {
+      "shift_log10": 1.0,
+      "x_factor": 10.0,
+      "decay=0.1": 1.0,
+      "decay=0.2": 1.0,
+      "decay=0.3": 1.0,
+      "decay=0.5": 1.0,
+      "decay=0.7": 1.0,
+      "decay_spread": 0.0
+    },
+    {
+      "shift_log10": 2.0,
+      "x_factor": 100.0,
+      "decay=0.1": 1.0,
+      "decay=0.2": 1.0,
+      "decay=0.3": 1.0,
+      "decay=0.5": 1.0,
+      "decay=0.7": 1.0,
+      "decay_spread": 0.0
+    },
+    {
+      "shift_log10": 3.0,
+      "x_factor": 1000.0,
+      "decay=0.1": 1.0,
+      "decay=0.2": 1.0,
+      "decay=0.3": 1.0,
+      "decay=0.5": 1.0,
+      "decay=0.7": 1.0,
+      "decay_spread": 0.0
+    }
+  ],
+  "prior_sweep": [
+    {
+      "shift_log10": 0.0,
+      "x_factor": 1.0,
+      "pi=0.17": 0.0,
+      "pi=0.3": 0.0,
+      "pi=0.5": 0.0,
+      "pi=0.7": 0.0,
+      "bayes_factor": 0.0,
+      "pi_spread": 0.0
+    },
+    {
+      "shift_log10": 0.3,
+      "x_factor": 2.0,
+      "pi=0.17": 0.0,
+      "pi=0.3": 0.0,
+      "pi=0.5": 0.0,
+      "pi=0.7": 0.0,
+      "bayes_factor": 0.0,
+      "pi_spread": 0.0
+    },
+    {
+      "shift_log10": 0.5,
+      "x_factor": 3.16,
+      "pi=0.17": 0.0686,
+      "pi=0.3": 0.1336,
+      "pi=0.5": 0.2646,
+      "pi=0.7": 0.4563,
+      "bayes_factor": 0.36,
+      "pi_spread": 0.3877
+    },
+    {
+      "shift_log10": 1.0,
+      "x_factor": 10.0,
+      "pi=0.17": 1.0,
+      "pi=0.3": 1.0,
+      "pi=0.5": 1.0,
+      "pi=0.7": 1.0,
+      "bayes_factor": 5.561751915681935e+77,
+      "pi_spread": 0.0
+    },
+    {
+      "shift_log10": 2.0,
+      "x_factor": 100.0,
+      "pi=0.17": 1.0,
+      "pi=0.3": 1.0,
+      "pi=0.5": 1.0,
+      "pi=0.7": 1.0,
+      "bayes_factor": null,
+      "pi_spread": 0.0
+    },
+    {
+      "shift_log10": 3.0,
+      "x_factor": 1000.0,
+      "pi=0.17": 1.0,
+      "pi=0.3": 1.0,
+      "pi=0.5": 1.0,
+      "pi=0.7": 1.0,
+      "bayes_factor": null,
+      "pi_spread": 0.0
+    }
+  ],
+  "max_decay_spread": 0.1247
+}
