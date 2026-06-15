@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AuditReady — Live Bayesian Audit Explorer</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>window.MathJax={tex:{inlineMath:[['$','$']]}};</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+<style>
+  :root{--bg:#0b1220;--panel:#121c2e;--panel2:#0f1828;--line:#22304a;--text:#e6edf6;
+        --muted:#8aa0bd;--accent:#5b9dff;--green:#1fb87a;--amber:#e0a13a;--red:#e0556e;--orange:#e8833a}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.6}
+  .wrap{max-width:1180px;margin:0 auto;padding:30px 26px 90px}
+  h1{font-size:25px;margin:0 0 4px} .sub{color:var(--muted);font-size:15px;margin-bottom:8px}
+  nav a{margin-right:14px;font-size:13px;color:var(--accent)}
+  h2{font-size:18px;margin:30px 0 8px;border-bottom:1px solid var(--line);padding-bottom:6px;color:#cfe0f5}
+  .live{display:inline-block;font-size:11px;font-weight:700;color:#06101f;background:var(--green);border-radius:999px;padding:2px 9px;margin-left:8px;vertical-align:middle}
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin:14px 0}
+  .read{border-left:4px solid var(--accent)}
+  code{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:1px 6px;font-size:12px}
+
+  .controls{position:sticky;top:0;z-index:5;background:var(--panel2);border:1px solid var(--line);border-radius:12px;
+            padding:14px 18px;margin:14px 0;display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:18px;backdrop-filter:blur(6px)}
+  .ctrl label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px}
+  .ctrl .val{color:var(--accent);font-weight:700}
+  select,input[type=range]{width:100%}
+  select{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:13px}
+  input[type=range]{accent-color:var(--accent);margin-top:8px}
+
+  .grid2{display:grid;grid-template-columns:1.25fr .75fr;gap:16px;align-items:start}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+  .panel h3{margin:0 0 4px;font-size:14px} .panel .hint{color:var(--muted);font-size:12px;margin-bottom:10px}
+  .bignum{font-size:40px;font-weight:800;line-height:1.1}
+  .stat{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line);font-size:14px}
+  .stat:last-child{border-bottom:0} .stat .k{color:var(--muted)} .stat .v{font-weight:700;font-variant-numeric:tabular-nums}
+
+  .agents{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:6px}
+  .agent{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px 15px;position:relative;transition:.18s}
+  .agent .step{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+  .agent .name{font-size:15px;font-weight:700;margin:2px 0 8px}
+  .agent .body{font-size:12.7px;color:#cfe0f5;min-height:64px}
+  .agent .verdict{margin-top:8px;font-weight:700;font-size:13px}
+  .agent.lit{box-shadow:0 0 0 2px var(--accent) inset}
+  .arrow{position:absolute;right:-9px;top:50%;transform:translateY(-50%);color:var(--line);font-size:18px;z-index:2}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;color:#06101f}
+  .b-green{background:var(--green)} .b-amber{background:var(--amber)} .b-red{background:var(--red)}
+
+  .triage-bars{display:flex;flex-direction:column;gap:10px;margin-top:8px}
+  .tb{display:grid;grid-template-columns:90px 1fr 56px;align-items:center;gap:10px;font-size:13px}
+  .tb .track{height:22px;background:var(--panel2);border-radius:6px;overflow:hidden}
+  .tb .fill{height:100%;border-radius:6px;transition:width .25s}
+  .muted{color:var(--muted);font-size:12.5px}
+  .foot{color:var(--muted);font-size:12px;margin-top:30px;line-height:1.7}
+  @media(max-width:880px){.controls{grid-template-columns:1fr 1fr}.grid2{grid-template-columns:1fr}.agents{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎛️ Live Bayesian Audit Explorer <span class="live">RUNS IN YOUR BROWSER</span></h1>
+  <div class="sub">The actual confidence model — recomputed live as you move the sliders. No server, no backend.</div>
+  <nav>
+    <a href="./index.html">← dashboard</a>
+    <a href="./verification.html">math verification</a>
+    <a href="./methodology.html">reasoning log</a>
+    <a href="./calibration.html">calibration</a>
+  </nav>
+
+  <div class="box read">
+    Every other page here is a static snapshot. <b>This one is the model itself.</b> The decimal-shift hypothesis test
+    ($H_0$: genuine vs $H_1$: a $\times10^k$ error) and the 4-agent decision are re-evaluated in JavaScript on every
+    slider move — the same equations as <code>confidence.py</code>. Drag the prior, the decay, and your risk tolerance,
+    and watch the evidence, the agents, and the whole 742-finding triage policy respond.
+  </div>
+
+  <div class="controls">
+    <div class="ctrl">
+      <label>Finding under audit</label>
+      <select id="caseSel"></select>
+    </div>
+    <div class="ctrl">
+      <label>prior $\pi$ = P(error | flagged) · <span class="val" id="piV">0.50</span></label>
+      <input type="range" id="pi" min="0.05" max="0.95" step="0.01" value="0.5">
+    </div>
+    <div class="ctrl">
+      <label>shift decay $\rho$ · <span class="val" id="decayV">0.30</span></label>
+      <input type="range" id="decay" min="0.1" max="0.7" step="0.01" value="0.3">
+    </div>
+    <div class="ctrl">
+      <label>auto-fix threshold · <span class="val" id="thrV">0.90</span></label>
+      <input type="range" id="thr" min="0.50" max="0.999" step="0.001" value="0.90">
+    </div>
+  </div>
+
+  <h2>1 · The evidence <span class="muted" style="font-weight:400">— $H_0$ vs $H_1$ densities, live</span></h2>
+  <div class="grid2">
+    <div class="panel">
+      <div class="hint">Blue = genuine ($H_0$). Orange = decimal-error mixture ($H_1$). The dashed line is the observed value. When it lands on an orange bump, it’s a clean $\times10^k$ shift.</div>
+      <canvas id="dens" height="150"></canvas>
+    </div>
+    <div class="panel">
+      <div class="hint">Posterior probability this value is an error, and the prior-free evidence.</div>
+      <div class="bignum" id="pErr" style="color:var(--accent)">—</div>
+      <div class="muted" style="margin:-4px 0 12px">P(error) · triage: <span id="laneBadge"></span></div>
+      <div class="stat"><span class="k">Bayes factor $f_1/f_0$</span><span class="v" id="bf">—</span></div>
+      <div class="stat"><span class="k">σ off baseline</span><span class="v" id="soff">—</span></div>
+      <div class="stat"><span class="k">value vs part center</span><span class="v" id="vc">—</span></div>
+      <div class="stat"><span class="k">suggested correction</span><span class="v" id="sug">—</span></div>
+    </div>
+  </div>
+
+  <h2>2 · The four agents decide <span class="muted" style="font-weight:400">— driven by the live numbers</span></h2>
+  <div class="agents" id="agents">
+    <div class="agent" id="aFind"><span class="arrow">→</span><div class="step">Step 1</div><div class="name">🔍 Find</div><div class="body" id="findB"></div></div>
+    <div class="agent" id="aRank"><span class="arrow">→</span><div class="step">Step 2</div><div class="name">📊 Rank</div><div class="body" id="rankB"></div></div>
+    <div class="agent" id="aAct"><span class="arrow">→</span><div class="step">Step 3</div><div class="name">🛠️ Act</div><div class="body" id="actB"></div><div class="verdict" id="actV"></div></div>
+    <div class="agent" id="aExp"><div class="step">Step 4</div><div class="name">💬 Explain</div><div class="body" id="expB"></div></div>
+  </div>
+
+  <h2>3 · Your risk tolerance sets the policy <span class="muted" style="font-weight:400">— decision theory, MacKay Ch 36</span></h2>
+  <div class="grid2">
+    <div class="panel">
+      <div class="hint">Move the <b>auto-fix threshold</b> (or the prior/decay) and the entire 742-finding triage re-sorts in real time. Higher threshold → fewer auto-fixes, more sent to humans. This is an expected-loss decision, not a hand-set cutoff.</div>
+      <div class="triage-bars" id="bars"></div>
+      <div class="muted" id="policyNote" style="margin-top:12px"></div>
+    </div>
+    <div class="panel">
+      <div class="hint">The same trade-off as BDA3 Figure 1.4: as you declare more matches, the false-match rate rises.</div>
+      <canvas id="oc" height="150"></canvas>
+    </div>
+  </div>
+
+  <div class="foot">
+    Real model, in your browser — port of <code>confidence.py</code>. $H_0/H_1$ comparison &amp; the Occam-safe mixture: MacKay Ch 28. Triage as expected loss: MacKay Ch 36. Record-linkage calibration: BDA3 §1.7. ·
+    <a href="https://github.com/shageenthsandrakumar/audit_ready/blob/main/docs/explorer.html">source</a>
+  </div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+const COL={green:'#1fb87a',amber:'#e0a13a',red:'#e0556e',accent:'#5b9dff',orange:'#e8833a',muted:'#8aa0bd'};
+const SHIFTS=[-3,-2,-1,1,2,3];
+let DATA, CASE, densChart, ocChart;
+
+// --- exact port of confidence.py decimal-shift model ----------------------- //
+function normpdf(x,mu,sd){const z=(x-mu)/sd;return Math.exp(-0.5*z*z)/(sd*Math.sqrt(2*Math.PI));}
+function f1mix(y,theta,sd,decay){
+  const w=SHIFTS.map(k=>Math.pow(decay,Math.abs(k)));
+  const Z=w.reduce((a,b)=>a+b,0);
+  let s=0; SHIFTS.forEach((k,i)=>{s+=(w[i]/Z)*normpdf(y,theta+k,sd);}); return s;
+}
+function evalCase(c,decay,pi){
+  const sd=Math.max(c.pred_sd,1e-3);
+  const f0=normpdf(c.y,c.theta,sd), f1=f1mix(c.y,c.theta,sd,decay);
+  const denom=pi*f1+(1-pi)*f0;
+  return {f0,f1,pErr:denom>0?pi*f1/denom:0.99,bf:f0>0?f1/f0:Infinity,sigmaOff:(c.y-c.theta)/sd};
+}
+function laneOf(conf,autoT){return conf>=autoT?'auto_fixed':(conf>=0.60?'quick_check':'needs_review');}
+function fmtBF(bf){if(!isFinite(bf))return '∞';if(bf>=1e4||bf<1e-3)return bf.toExponential(1);return bf.toFixed(2);}
+
+// vertical-line plugin for the observed value
+const vline={id:'vline',afterDraw(ch){const x=ch.$vx;if(x==null)return;const xp=ch.scales.x.getPixelForValue(x);
+  const{top,bottom}=ch.chartArea;const g=ch.ctx;g.save();g.strokeStyle='#e6edf6';g.setLineDash([5,4]);g.lineWidth=1.5;
+  g.beginPath();g.moveTo(xp,top);g.lineTo(xp,bottom);g.stroke();g.setLineDash([]);
+  g.fillStyle='#e6edf6';g.font='11px sans-serif';g.fillText('observed',xp+4,top+12);g.restore();}};
+
+function init(){
+  const sel=$('#caseSel');
+  DATA.weight_cases.forEach((c,i)=>{
+    const o=document.createElement('option');o.value=i;
+    o.textContent=`${c.record_id} · ${c.part_number} · ${c.weight_kg}kg · $${Math.round(c.impact_usd).toLocaleString()}`;
+    sel.appendChild(o);
+  });
+  sel.onchange=()=>{CASE=DATA.weight_cases[+sel.value];render();};
+  ['pi','decay','thr'].forEach(id=>$('#'+id).addEventListener('input',render));
+  CASE=DATA.weight_cases[0];
+  buildDensChart(); buildOCChart(); render();
+}
+
+function render(){
+  const pi=+$('#pi').value, decay=+$('#decay').value, autoT=+$('#thr').value;
+  $('#piV').textContent=pi.toFixed(2); $('#decayV').textContent=decay.toFixed(2); $('#thrV').textContent=autoT.toFixed(3);
+  const r=evalCase(CASE,decay,pi);
+  const lane=laneOf(r.pErr,autoT);
+  const laneMap={auto_fixed:['b-green','auto-fix'],quick_check:['b-amber','quick-check'],needs_review:['b-red','needs-review']};
+
+  // panel readouts
+  $('#pErr').textContent=(r.pErr*100).toFixed(1)+'%';
+  $('#pErr').style.color=lane==='auto_fixed'?COL.green:(lane==='quick_check'?COL.amber:COL.red);
+  $('#laneBadge').innerHTML=`<span class="pill ${laneMap[lane][0]}">${laneMap[lane][1]}</span>`;
+  $('#bf').textContent=fmtBF(r.bf);
+  $('#soff').textContent=r.sigmaOff.toFixed(2)+' σ';
+  const center=Math.pow(10,CASE.theta);
+  $('#vc').textContent=`${CASE.weight_kg}kg vs ${center.toFixed(2)}kg (×${(CASE.weight_kg/center).toFixed(1)})`;
+  $('#sug').textContent=CASE.suggested_kg?`${CASE.suggested_kg}kg (${CASE.k>0?'+':''}${CASE.k} shift)`:'—';
+
+  drawDensity(decay);
+  renderAgents(r,lane,pi,decay,autoT);
+  renderTriage(decay,pi,autoT);
+}
+
+function renderAgents(r,lane,pi,decay,autoT){
+  const center=Math.pow(10,CASE.theta), ratio=CASE.weight_kg/center;
+  const sev=Math.min(10,8+Math.round(r.pErr*2)); // high-severity weight class
+  $('#findB').innerHTML=`Detector flagged <b>${CASE.record_id}</b>.<br>Weight <b>${CASE.weight_kg}kg</b> vs part baseline <b>${center.toFixed(2)}kg</b> → <b>×${ratio.toFixed(1)}</b> (${r.sigmaOff.toFixed(1)}σ off).`;
+  $('#rankB').innerHTML=`severity <b>${sev}/10</b> × confidence <b>${(r.pErr*100).toFixed(0)}%</b><br>Bayes factor <b>${fmtBF(r.bf)}</b> — ${r.bf>1e3?'overwhelming evidence':(r.bf>1?'evidence favors error':'evidence favors genuine')}.`;
+  const actMap={auto_fixed:['fix','b-green','Confidence ≥ threshold ('+autoT.toFixed(2)+'): apply the correction with a logged audit record.'],
+                quick_check:['flag','b-amber','Likely real but below the auto-fix bar: 10-second human glance.'],
+                needs_review:['escalate','b-red','Too uncertain to auto-fix: a human must decide.']};
+  $('#actB').innerHTML=actMap[lane][2];
+  $('#actV').innerHTML=`→ <span class="pill ${actMap[lane][1]}">${actMap[lane][0]}</span>`;
+  if(lane==='auto_fixed'&&CASE.suggested_kg)
+    $('#expB').innerHTML=`“<b>${CASE.record_id}</b> reads ${CASE.weight_kg}kg, but part <b>${CASE.part_number}</b> averages ${center.toFixed(2)}kg. That’s a ${CASE.k>0?'+':''}${CASE.k} decimal shift — the evidence is ${r.bf>1e3?'decisive':'strong'} (${fmtBF(r.bf)}:1), so I corrected it to <b>${CASE.suggested_kg}kg</b>.”`;
+  else
+    $('#expB').innerHTML=`“<b>${CASE.record_id}</b> at ${CASE.weight_kg}kg is only ${r.sigmaOff.toFixed(1)}σ from baseline and the evidence (${fmtBF(r.bf)}:1) isn’t decisive under your current prior — I’m holding it for a human rather than guessing.”`;
+  // light up the active lane's agent
+  $('#aAct').classList.toggle('lit',true);
+}
+
+function buildDensChart(){
+  densChart=new Chart($('#dens'),{type:'line',data:{labels:[],datasets:[
+    {label:'H0 genuine',data:[],borderColor:COL.accent,backgroundColor:COL.accent+'22',fill:true,borderWidth:2,pointRadius:0,tension:.3},
+    {label:'H1 error',data:[],borderColor:COL.orange,backgroundColor:COL.orange+'1f',fill:true,borderWidth:2,pointRadius:0,tension:.3}
+  ]},options:{plugins:{legend:{labels:{color:COL.muted,boxWidth:12}}},
+    scales:{x:{title:{display:true,text:'log10(weight)',color:COL.muted},ticks:{color:COL.muted,maxTicksLimit:8},grid:{color:'#1c2940'}},
+            y:{title:{display:true,text:'density',color:COL.muted},ticks:{color:COL.muted},grid:{color:'#1c2940'}}}},plugins:[vline]});
+}
+function drawDensity(decay){
+  const sd=Math.max(CASE.pred_sd,1e-3);
+  const lo=Math.min(CASE.theta-1,CASE.y)-0.4, hi=Math.max(CASE.theta+3,CASE.y)+0.4;
+  const N=220, xs=[],h0=[],h1=[];
+  for(let i=0;i<=N;i++){const x=lo+(hi-lo)*i/N;xs.push(x);h0.push(normpdf(x,CASE.theta,sd));h1.push(f1mix(x,CASE.theta,sd,decay));}
+  densChart.data.labels=xs.map(x=>x.toFixed(2));
+  densChart.data.datasets[0].data=h0; densChart.data.datasets[1].data=h1;
+  densChart.$vx=CASE.y; // pixel mapping uses category index -> find nearest
+  // map observed y to nearest category index for the plugin
+  let bi=0,bd=1e9; xs.forEach((x,i)=>{const d=Math.abs(x-CASE.y);if(d<bd){bd=d;bi=i;}}); densChart.$vx=bi;
+  densChart.update('none');
+}
+
+function renderTriage(decay,pi,autoT){
+  const counts={auto_fixed:0,quick_check:0,needs_review:0};
+  let flipped=0;
+  DATA.all_findings.forEach(f=>{counts[laneOf(f.confidence,autoT)]++;});
+  // overlay live-recomputed weight findings (their confidence depends on pi/decay)
+  // remove the baked weight entries first
+  DATA.all_findings.forEach(f=>{if(f.is_weight)counts[laneOf(f.confidence,autoT)]--;});
+  DATA.weight_cases.forEach(c=>{const p=evalCase(c,decay,pi).pErr;counts[laneOf(p,autoT)]++;
+    if(laneOf(p,autoT)!=='auto_fixed')flipped++;});
+  const tot=counts.auto_fixed+counts.quick_check+counts.needs_review;
+  const rows=[['auto_fixed','auto-fix',COL.green],['quick_check','quick-check',COL.amber],['needs_review','needs-review',COL.red]];
+  $('#bars').innerHTML=rows.map(([k,lbl,c])=>{
+    const n=counts[k],pct=(100*n/tot).toFixed(1);
+    return `<div class="tb"><span style="color:${c};font-weight:700">${lbl}</span>
+      <div class="track"><div class="fill" style="width:${pct}%;background:${c}"></div></div>
+      <span style="text-align:right;font-variant-numeric:tabular-nums">${n}</span></div>`;}).join('');
+  $('#policyNote').innerHTML=`At threshold <b>${autoT.toFixed(2)}</b>, prior <b>${pi.toFixed(2)}</b>, decay <b>${decay.toFixed(2)}</b>: <b>${counts.auto_fixed}</b> of ${tot} findings auto-fix · <b>${flipped}</b> of 33 weight findings are now held back from auto-fix.`;
+}
+
+function buildOCChart(){
+  fetch('./calibration_report.json').then(r=>r.json()).then(R=>{
+    const oc=R.operating_curve||[];
+    ocChart=new Chart($('#oc'),{type:'line',data:{datasets:[
+      {label:'false-match rate',data:oc.map(p=>({x:p.t,y:p.false_match_rate})),borderColor:COL.red,borderWidth:2,pointRadius:0,tension:.2},
+      {label:'recall',data:oc.map(p=>({x:p.t,y:p.recall})),borderColor:COL.green,borderWidth:2,pointRadius:0,tension:.2}
+    ]},options:{plugins:{legend:{labels:{color:COL.muted,boxWidth:12}}},
+      scales:{x:{type:'linear',title:{display:true,text:'decision threshold',color:COL.muted},min:0,max:1,ticks:{color:COL.muted},grid:{color:'#1c2940'}},
+              y:{min:0,max:1,ticks:{color:COL.muted},grid:{color:'#1c2940'}}}},plugins:[{id:'thrline',afterDraw(ch){
+        const t=+$('#thr').value;const xp=ch.scales.x.getPixelForValue(t);const{top,bottom}=ch.chartArea;const g=ch.ctx;
+        g.save();g.strokeStyle=COL.accent;g.setLineDash([5,4]);g.beginPath();g.moveTo(xp,top);g.lineTo(xp,bottom);g.stroke();g.restore();}}]});
+    $('#thr').addEventListener('input',()=>ocChart&&ocChart.update('none'));
+  }).catch(()=>{$('#oc').parentElement.style.display='none';});
+}
+
+fetch('./explorer_data.json').then(r=>r.json()).then(d=>{DATA=d;init();});
+</script>
+</body>
+</html>
