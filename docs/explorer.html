@@ -94,7 +94,7 @@
     </div>
   </div>
 
-  <h2>1 · The evidence <span class="muted" style="font-weight:400;font-size:14px">($H_0$ vs $H_1$ densities, live)</span></h2>
+  <h2>1 · The evidence <span class="muted" style="font-weight:400">· $H_0$ vs $H_1$ densities, live</span></h2>
   <div class="grid2">
     <div class="panel">
       <div class="hint">Blue = genuine ($H_0$). Orange = decimal-error mixture ($H_1$). The dashed line is the observed value. When it lands on an orange bump, it’s a clean $\times10^k$ shift.</div>
@@ -102,16 +102,16 @@
     </div>
     <div class="panel">
       <div class="hint">Posterior probability this value is an error, and the prior-free evidence.</div>
-      <div class="bignum" id="pErr" style="color:var(--accent)">--</div>
+      <div class="bignum" id="pErr" style="color:var(--accent)">—</div>
       <div class="muted" style="margin:-4px 0 12px">P(error) · triage: <span id="laneBadge"></span></div>
-      <div class="stat"><span class="k">Bayes factor $f_1/f_0$</span><span class="v" id="bf">--</span></div>
-      <div class="stat"><span class="k">σ off baseline</span><span class="v" id="soff">--</span></div>
-      <div class="stat"><span class="k">value vs part center</span><span class="v" id="vc">--</span></div>
-      <div class="stat"><span class="k">suggested correction</span><span class="v" id="sug">--</span></div>
+      <div class="stat"><span class="k">Bayes factor $f_1/f_0$</span><span class="v" id="bf">—</span></div>
+      <div class="stat"><span class="k">σ off baseline</span><span class="v" id="soff">—</span></div>
+      <div class="stat"><span class="k">value vs part center</span><span class="v" id="vc">—</span></div>
+      <div class="stat"><span class="k">suggested correction</span><span class="v" id="sug">—</span></div>
     </div>
   </div>
 
-  <h2>2 · The four agents decide <span class="muted" style="font-weight:400;font-size:14px">(driven by the live numbers)</span></h2>
+  <h2>2 · The four agents decide <span class="muted" style="font-weight:400">· driven by the live numbers</span></h2>
   <div class="agents" id="agents">
     <div class="agent" id="aFind"><span class="arrow">→</span><div class="step">Step 1</div><div class="name">🔍 Find</div><div class="body" id="findB"></div></div>
     <div class="agent" id="aRank"><span class="arrow">→</span><div class="step">Step 2</div><div class="name">📊 Rank</div><div class="body" id="rankB"></div></div>
@@ -119,7 +119,7 @@
     <div class="agent" id="aExp"><div class="step">Step 4</div><div class="name">💬 Explain</div><div class="body" id="expB"></div></div>
   </div>
 
-  <h2>3 · Your risk tolerance sets the policy <span class="muted" style="font-weight:400;font-size:14px">(decision theory, MacKay Ch 36)</span></h2>
+  <h2>3 · Your risk tolerance sets the policy <span class="muted" style="font-weight:400">· decision theory, MacKay Ch 36</span></h2>
   <div class="grid2">
     <div class="panel">
       <div class="hint">Move the <b>auto-fix threshold</b> (or the prior/decay) and the entire 742-finding triage re-sorts in real time. Higher threshold → fewer auto-fixes, more sent to humans. This is an expected-loss decision, not a hand-set cutoff.</div>
