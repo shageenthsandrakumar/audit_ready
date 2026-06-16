@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AuditReady. Math Verification Against the Sources</title>
+<title>AuditReady | Math Verification</title>
 <script>window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$'],['\\[','\\]']]}};</script>
 <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
 <style>
@@ -28,7 +28,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>🔬 Math Verification. Checked against the actual sources</h1>
+  <h1>🔬 Mathematical Verification: BDA3 and MacKay, page by page</h1>
   <div class="sub">Every modeling claim cross-checked against BDA3 and MacKay, page by page. Verified 2026-06-15.</div>
   <nav>
     <a href="./index.html">← dashboard</a>
@@ -44,13 +44,13 @@
   <h2>1. The decimal-shift alternative $H_1$. <span class="ok">Correct</span></h2>
   <p>The detector flags weights that look like decimal-place errors. The model compares two hypotheses for an observed weight, working in <b>$\log_{10}$ space</b> ($y=\log_{10}\text{weight}$, per-part center $\theta$):</p>
   $$H_0:\ y\sim\mathcal N(\theta,\ \sigma_p), \qquad H_1:\ y\sim\sum_{k\in\{\pm1,\pm2,\pm3\}} w_k\,\mathcal N(\theta+k,\ \sigma_p),\quad w_k\propto \rho^{|k|}.$$
-  <p>The key thing to verify: a decimal shift is <i>multiplicative</i> ($\times 10^k$), yet the code adds <code>theta + k</code>. This is valid only in log space — and in log space it holds exactly. A $\times 10^k$ factor becomes a <b>$+k$ translation</b> of $y = \log_{10}(\text{weight})$, so each mixture component $\mathcal N(\theta+k,\sigma_p)$ sits precisely where a $k$-digit shift lands. <span class="ok">Coherent.</span></p>
+  <p>The key thing to verify: a decimal shift is <i>multiplicative</i> ($\times 10^k$), yet the code adds <code>theta + k</code>. In log space this is exact: a $\times 10^k$ factor becomes a <b>$+k$ translation</b> of $y = \log_{10}(\text{weight})$, so each mixture component $\mathcal N(\theta+k,\sigma_p)$ sits precisely where a $k$-digit shift lands. <span class="ok">Coherent.</span></p>
   <p class="muted">Implementation note: <code>error_probability</code> parameterizes as $\mathcal N(y;\,\theta+k)$ while <code>best_decimal_correction</code> uses $\mathcal N(y+k;\,\theta)$. These use opposite sign conventions. The result is identical because the shift set is symmetric and weights depend only on $|k|$, making $f_1$ sign-invariant. Flagged in-code in case the prior is ever made asymmetric.</p>
 
   <h3>Why this fixes the old, broken $H_1$. MacKay Ch 28</h3>
   <p>The previous alternative was a vague $\mathcal N(\mu_0, 2.0)$. MacKay, <b>“Model Comparison and Occam’s Razor,” pp. 343–347</b>, explains exactly why that was self-defeating:</p>
   <blockquote>“Simple models tend to make precise predictions. Complex models, by their nature, are capable of making a greater variety of predictions … [so a complex model] must spread its predictive probability $P(D\mid H_2)$ more thinly over the data space.” (p. 345)</blockquote>
-  <p>A diffuse $H_1$ of width $\sigma_{\text{alt}}$ assigns any plausible $y$ a density $\approx \tfrac{1}{\sigma_{\text{alt}}\sqrt{2\pi}}$, so the Bayes factor scales with $\sigma_{\text{alt}}$ through the Occam penalty $\sim 1/\sigma_{\text{alt}}$ — an arbitrary knob, not a model. The structured $H_1$ replaces that vague spread with a mechanism (decimal shifts), grounding the verdict in the likelihood ratio at the observed data. <b>Verified empirically below.</b></p>
+  <p>A diffuse $H_1$ of width $\sigma_{\text{alt}}$ assigns any plausible $y$ a density $\approx \tfrac{1}{\sigma_{\text{alt}}\sqrt{2\pi}}$, so the Bayes factor scales with $\sigma_{\text{alt}}$ through the Occam penalty $\sim 1/\sigma_{\text{alt}}$, an arbitrary knob with no grounding in the data. The structured $H_1$ replaces that vague spread with a mechanism (decimal shifts), grounding the verdict in the likelihood ratio at the observed data. <b>Verified empirically below.</b></p>
 
   <h2>2. Sensitivity: the verdict is not a tuned knob. <span class="ok">Verified.</span></h2>
   <p>A reviewer’s first objection: “you hand-picked $\rho=0.3$ and the prior $\pi$.” <code>sensitivity.py</code> sweeps both across a grid of displacements (value at $\theta+s$ in log space, i.e. a $\times 10^{s}$ error). Real output, part <code>BOLT-100</code> ($\sigma_p=0.053$):</p>
