@@ -212,9 +212,9 @@ function renderAgents(r,lane,pi,decay,autoT){
   $('#actB').innerHTML=actMap[lane][2];
   $('#actV').innerHTML=`→ <span class="pill ${actMap[lane][1]}">${actMap[lane][0]}</span>`;
   if(lane==='auto_fixed'&&CASE.suggested_kg)
-    $(‘#expB’).innerHTML=`”<b>${CASE.record_id}</b> reads ${CASE.weight_kg}kg, but part <b>${CASE.part_number}</b> averages ${center.toFixed(2)}kg. That’s a ${CASE.k>0?’+’:’’}${CASE.k} decimal shift. The evidence is ${r.bf>1e3?’decisive’:’strong’} (${fmtBF(r.bf)}:1), so I corrected it to <b>${CASE.suggested_kg}kg</b>.”`;
+    $('#expB').innerHTML=`"<b>${CASE.record_id}</b> reads ${CASE.weight_kg}kg, but part <b>${CASE.part_number}</b> averages ${center.toFixed(2)}kg. That's a ${CASE.k>0?'+':''}${CASE.k} decimal shift. The evidence is ${r.bf>1e3?'decisive':'strong'} (${fmtBF(r.bf)}:1), so I corrected it to <b>${CASE.suggested_kg}kg</b>."`;
   else
-    $(‘#expB’).innerHTML=`”<b>${CASE.record_id}</b> at ${CASE.weight_kg}kg is only ${r.sigmaOff.toFixed(1)}σ from baseline and the evidence (${fmtBF(r.bf)}:1) isn’t decisive under your current prior. I’m holding it for a human rather than guessing.”`;
+    $('#expB').innerHTML=`"<b>${CASE.record_id}</b> at ${CASE.weight_kg}kg is only ${r.sigmaOff.toFixed(1)}σ from baseline and the evidence (${fmtBF(r.bf)}:1), so I am holding it for a human rather than guessing."`;
   // light up the active lane's agent
   $('#aAct').classList.toggle('lit',true);
 }
