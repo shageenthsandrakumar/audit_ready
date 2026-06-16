@@ -28,18 +28,14 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>🔬 Mathematical Verification: BDA3 and MacKay, page by page</h1>
-  <div class="sub">Every modeling claim cross-checked against BDA3 and MacKay, page by page. Verified 2026-06-15.</div>
+  <h1>🔬 Mathematical Verification: BDA3 and MacKay</h1>
+  <div class="sub">Every modeling claim cross-checked against BDA3 and MacKay. Verified 2026-06-15.</div>
   <nav>
     <a href="./index.html">← dashboard</a>
     <a href="./methodology.html">reasoning log</a>
     <a href="./calibration.html">calibration</a>
     <a href="./model.html">weight model</a>
   </nav>
-
-  <div class="box read">
-    <b>Mandate.</b> Before building further, double-check the math and logic of the confidence model against the books: BDA3 (Gelman et al.) and MacKay (<i>Information Theory, Inference, and Learning Algorithms</i>). Text was extracted directly from the supplied PDFs and quotations verified. <span class="muted">(The third supplied file, <code>9780429113079_previewpdf.pdf</code>, is the CRC preview of BDA3. Not a separate text.)</span>
-  </div>
 
   <h2>1. The decimal-shift alternative $H_1$. <span class="ok">Correct</span></h2>
   <p>The detector flags weights that look like decimal-place errors. The model compares two hypotheses for an observed weight, working in <b>$\log_{10}$ space</b> ($y=\log_{10}\text{weight}$, per-part center $\theta$):</p>
