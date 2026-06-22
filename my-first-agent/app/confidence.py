@@ -357,7 +357,7 @@ class WeightModel:
 
         best = None
         for k in (-3, -2, -1, 1, 2, 3):
-            f_k = stats.norm.pdf(y + k, loc=theta, scale=max(pred_sd, 1e-3))
+            f_k = stats.norm.pdf(y, loc=theta + k, scale=max(pred_sd, 1e-3))
             if best is None or f_k > best[1]:
                 best = (k, f_k)
         k, f_best = best
