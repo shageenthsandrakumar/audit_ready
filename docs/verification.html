@@ -41,7 +41,6 @@
   <p>The detector flags weights that look like decimal-place errors. The model compares two hypotheses for an observed weight, working in <b>$\log_{10}$ space</b> ($y=\log_{10}\text{weight}$, per-part center $\theta$):</p>
   $$H_0:\ y\sim\mathcal N(\theta,\ \sigma_p), \qquad H_1:\ y\sim\sum_{k\in\{\pm1,\pm2,\pm3\}} w_k\,\mathcal N(\theta+k,\ \sigma_p),\quad w_k\propto \rho^{|k|}.$$
   <p>The key thing to verify: a decimal shift is <i>multiplicative</i> ($\times 10^k$), yet the code adds <code>theta + k</code>. In log space this is exact: a $\times 10^k$ factor becomes a <b>$+k$ translation</b> of $y = \log_{10}(\text{weight})$, so each mixture component $\mathcal N(\theta+k,\sigma_p)$ sits precisely where a $k$-digit shift lands. <span class="ok">Coherent.</span></p>
-  <p class="muted">Implementation note: both <code>error_probability</code> and <code>best_decimal_correction</code> now use the same parameterization $\mathcal N(y;\,\theta+k,\sigma_p)$ — evaluating the likelihood of the observed $y$ under a distribution centered at $\theta+k$. This is the natural form: for each candidate shift $k$, we ask how plausible the original observation is under the hypothesis that the true part center is $\theta$ and a $\times 10^k$ transcription error shifted the recorded value by $+k$ in log space.</p>
 
   <h3>Why this fixes the old, broken $H_1$. MacKay Ch 28</h3>
   <p>The previous alternative was a vague $\mathcal N(\mu_0, 2.0)$. MacKay, <b>“Model Comparison and Occam’s Razor,” pp. 343–347</b>, explains exactly why that was self-defeating:</p>
